@@ -254,7 +254,7 @@ public final class HashBuildAndProbeTable implements LookupSource
 
 
     }
-    public void addPage(Page page) {
+    public synchronized void addPage(Page page) {
         //Add page to channel and address
         if (page.getPositionCount() == 0) {
             return;
@@ -318,7 +318,7 @@ public final class HashBuildAndProbeTable implements LookupSource
             estimatedSize = calculateEstimatedSize();
     }
 
-    public Page joinPage(Page page) {
+    public synchronized Page joinPage(Page page) {
         return joinProcessor.joinPage(page);
     }
     @Override

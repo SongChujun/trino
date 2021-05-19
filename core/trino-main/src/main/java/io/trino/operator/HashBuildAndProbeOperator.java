@@ -31,7 +31,6 @@ public class HashBuildAndProbeOperator implements Operator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-//        private final JoinBridgeManager<PartitionedLookupSourceFactory> lookupSourceFactoryManager;
         private final List<Integer> outputChannels;
         private final List<Integer> hashChannels;
         private final OptionalInt preComputedHashChannel;
@@ -45,6 +44,7 @@ public class HashBuildAndProbeOperator implements Operator
         private final SingleStreamSpillerFactory singleStreamSpillerFactory;
 
         private final Map<Lifespan, Integer> partitionIndexManager = new HashMap<>();
+        private final boolean isBuildSide;
         private boolean closed;
 
         public HashBuildAndProbeOperatorFactory(
@@ -59,7 +59,8 @@ public class HashBuildAndProbeOperator implements Operator
                 int expectedPositions,
                 PagesIndex.Factory pagesIndexFactory,
                 boolean spillEnabled,
-                SingleStreamSpillerFactory singleStreamSpillerFactory)
+                SingleStreamSpillerFactory singleStreamSpillerFactory,
+                boolean isBuildSide)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -78,6 +79,7 @@ public class HashBuildAndProbeOperator implements Operator
             this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
 
             this.expectedPositions = expectedPositions;
+            this.isBuildSide = isBuildSide;
         }
 
         @Override
@@ -102,7 +104,7 @@ public class HashBuildAndProbeOperator implements Operator
                     expectedPositions,
                     pagesIndexFactory,
                     spillEnabled,
-                    singleStreamSpillerFactory);
+                    singleStreamSpillerFactory,isBuildSide);
         }
 
         @Override
@@ -122,6 +124,10 @@ public class HashBuildAndProbeOperator implements Operator
             return partitionIndexManager.compute(lifespan, (k, v) -> v == null ? 1 : v + 1) - 1;
         }
     }
+
+
+
+
 
     private static final double INDEX_COMPACTION_ON_REVOCATION_TARGET = 0.8;
 
@@ -157,7 +163,10 @@ public class HashBuildAndProbeOperator implements Operator
     private OptionalLong lookupSourceChecksum = OptionalLong.empty();
 
     private Optional<Runnable> finishMemoryRevoke = Optional.empty();
-    private HashBuildAndProbeTable hashBuildAndProbeTable;
+    private IncrementalJoinBridge joinBridge;
+    private final boolean isBuildSide;
+    private Page result;
+
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
@@ -172,7 +181,9 @@ public class HashBuildAndProbeOperator implements Operator
             int expectedPositions,
             PagesIndex.Factory pagesIndexFactory,
             boolean spillEnabled,
-            SingleStreamSpillerFactory singleStreamSpillerFactory)
+            IncrementalJoinBridge joinBridge,
+            boolean isBuildSide
+            )
     {
         requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
 
@@ -197,8 +208,8 @@ public class HashBuildAndProbeOperator implements Operator
 
         this.spillEnabled = spillEnabled;
         this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
-        this.hashBuildAndProbeTable = hashBuildAndProbeTable;
-
+        this.joinBridge = joinBridge;
+        this.isBuildSide = isBuildSide;
     }
 
     @Override
@@ -223,7 +234,13 @@ public class HashBuildAndProbeOperator implements Operator
     @Override
     public void addInput(Page page)
     {
-        hashBuildAndProbeTable.addPage(page);
+//        Page resPage = null;
+        if (isBuildSide){
+            result = joinBridge.processBuildSidePage(page);
+        } else
+        {
+            result =  joinBridge.processProbeSidePage(page);
+        }
     }
 
     @Override
@@ -239,8 +256,9 @@ public class HashBuildAndProbeOperator implements Operator
     @Override
     public Page getOutput()
     {
-//        return  hashBuildAndProbeTable.;
-        throw new UnsupportedOperationException();
+        Page res = result;
+        result = null;
+        return res;
     }
 
     @Override
