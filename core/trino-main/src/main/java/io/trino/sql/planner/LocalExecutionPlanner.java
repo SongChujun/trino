@@ -42,6 +42,7 @@ import io.trino.index.IndexManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TableHandle;
+import io.trino.operator.AdaptiveJoinBridge;
 import io.trino.operator.AggregationOperator.AggregationOperatorFactory;
 import io.trino.operator.AssignUniqueIdOperator;
 import io.trino.operator.DeleteOperator.DeleteOperatorFactory;
@@ -56,8 +57,12 @@ import io.trino.operator.ExplainAnalyzeOperator.ExplainAnalyzeOperatorFactory;
 import io.trino.operator.FilterAndProjectOperator;
 import io.trino.operator.GroupIdOperator;
 import io.trino.operator.HashAggregationOperator.HashAggregationOperatorFactory;
+import io.trino.operator.HashBuildAndProbeOperator;
 import io.trino.operator.HashBuilderOperator.HashBuilderOperatorFactory;
+import io.trino.operator.HashGenerator;
 import io.trino.operator.HashSemiJoinOperator;
+//import io.trino.operator.IncrementalJoinBridge;
+import io.trino.operator.InterpretedHashGenerator;
 import io.trino.operator.JoinBridgeManager;
 import io.trino.operator.JoinOperatorFactory;
 import io.trino.operator.JoinOperatorFactory.OuterOperatorFactoryResult;
@@ -72,6 +77,7 @@ import io.trino.operator.NestedLoopJoinBridge;
 import io.trino.operator.NestedLoopJoinPagesSupplier;
 import io.trino.operator.OperatorFactory;
 import io.trino.operator.OrderByOperator.OrderByOperatorFactory;
+import io.trino.operator.OuterJoinResultProcessingOperator;
 import io.trino.operator.OutputFactory;
 import io.trino.operator.PagesIndex;
 import io.trino.operator.PagesSpatialIndexFactory;
@@ -79,6 +85,7 @@ import io.trino.operator.PartitionFunction;
 import io.trino.operator.PartitionedLookupSourceFactory;
 import io.trino.operator.PartitionedOutputOperator.PartitionedOutputFactory;
 import io.trino.operator.PipelineExecutionStrategy;
+import io.trino.operator.PrecomputedHashGenerator;
 import io.trino.operator.RowNumberOperator;
 import io.trino.operator.ScanFilterAndProjectOperator.ScanFilterAndProjectOperatorFactory;
 import io.trino.operator.SetBuilderOperator.SetBuilderOperatorFactory;
@@ -108,6 +115,7 @@ import io.trino.operator.exchange.LocalExchange.LocalExchangeFactory;
 import io.trino.operator.exchange.LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory;
 import io.trino.operator.exchange.LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory;
 import io.trino.operator.exchange.LocalMergeSourceOperator.LocalMergeSourceOperatorFactory;
+import io.trino.operator.exchange.LocalPartitionGenerator;
 import io.trino.operator.exchange.PageChannelSelector;
 import io.trino.operator.index.DynamicTupleFilterFactory;
 import io.trino.operator.index.FieldSetFilteringRecordSet;
@@ -159,6 +167,7 @@ import io.trino.sql.gen.JoinFilterFunctionCompiler.JoinFilterFunctionFactory;
 import io.trino.sql.gen.OrderingCompiler;
 import io.trino.sql.gen.PageFunctionCompiler;
 import io.trino.sql.planner.optimizations.IndexJoinOptimizer;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.AggregationNode.Step;
@@ -284,6 +293,7 @@ import static io.trino.operator.unnest.UnnestOperator.UnnestOperatorFactory;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.CLASSIFIER;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.MATCH_NUMBER;
 import static io.trino.spi.StandardErrorCode.COMPILER_ERROR;
+import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static io.trino.spi.type.TypeUtils.writeNativeValue;
@@ -298,6 +308,7 @@ import static io.trino.sql.planner.SortExpressionExtractor.extractSortExpression
 import static io.trino.sql.planner.SystemPartitioningHandle.COORDINATOR_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
+import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_PASSTHROUGH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.AggregationNode.Step.FINAL;
@@ -327,6 +338,7 @@ import static io.trino.util.SpatialJoinUtils.ST_WITHIN;
 import static io.trino.util.SpatialJoinUtils.extractSupportedSpatialComparisons;
 import static io.trino.util.SpatialJoinUtils.extractSupportedSpatialFunctions;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
 import static java.util.stream.IntStream.range;
 
 public class LocalExecutionPlanner
@@ -2086,6 +2098,36 @@ public class LocalExecutionPlanner
         }
 
         @Override
+        public PhysicalOperation visitAdaptiveJoin(AdaptiveJoinNode node, LocalExecutionPlanContext context)
+        {
+            // Register dynamic filters, allowing the scan operators to wait for the collection completion.
+            // Skip dynamic filters that are not used locally (e.g. in case of distributed joins).
+            // why dynamic join on left side only?
+            Set<DynamicFilterId> localDynamicFilters = node.getDynamicFilters().keySet().stream()
+                    .filter(getConsumedDynamicFilterIds(node.getLeft())::contains)
+                    .collect(toImmutableSet());
+            context.getDynamicFiltersCollector().register(localDynamicFilters);
+
+
+            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
+
+            List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
+            List<Symbol> rightSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
+
+//            List<Integer> probeJoinChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, node.getLeft().getLayout()));
+
+
+            switch (node.getType()) {
+                case INNER:
+                case LEFT:
+                case RIGHT:
+                case FULL:
+//                    return createAdaptiveJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
+        @Override
         public PhysicalOperation visitSpatialJoin(SpatialJoinNode node, LocalExecutionPlanContext context)
         {
             Expression filterExpression = node.getFilter();
@@ -2687,6 +2729,7 @@ public class LocalExecutionPlanner
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
 
+
         private Map<Symbol, Integer> createJoinSourcesLayout(Map<Symbol, Integer> lookupSourceLayout, Map<Symbol, Integer> probeSourceLayout)
         {
             ImmutableMap.Builder<Symbol, Integer> joinSourcesLayout = ImmutableMap.builder();
@@ -3172,6 +3215,161 @@ public class LocalExecutionPlanner
                     "driver instance count must match the number of exchange partitions");
 
             return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchangeFactory), makeLayout(node), context, exchangeSourcePipelineExecutionStrategy);
+        }
+
+        private PhysicalOperation createAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)
+        {
+            PlanNode buildNode = node.getRight();
+            LocalExecutionPlanContext buildContext = context.createSubContext();
+            PhysicalOperation buildSource = buildNode.accept(this, buildContext);
+
+            PlanNode probeNode = node.getRight();
+            LocalExecutionPlanContext probeContext = context.createSubContext();
+            PhysicalOperation probeSource = probeNode.accept(this, buildContext);
+
+            PlanNode outerNode = node.getRight();
+            LocalExecutionPlanContext outerContext = context.createSubContext();
+            PhysicalOperation outerSource = probeNode.accept(this, outerContext);
+
+
+            List<Type> buildTypes = buildSource.getTypes();
+            List<Type> probeTypes = probeSource.getTypes();
+            List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), buildSource.getLayout()));
+            List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), probeSource.getLayout()));
+
+            ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
+                    .map(buildSource.getTypes()::get)
+                    .collect(toImmutableList());
+            ImmutableList<Type> probeOutputTypes = probeOutputChannels.stream()
+                    .map(probeSource.getTypes()::get)
+                    .collect(toImmutableList());
+
+            OptionalInt buildHashChannel = node.getRightHashSymbol().map(channelGetter(buildSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
+            OptionalInt probeHashChannel = node.getLeftHashSymbol().map(channelGetter(probeSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
+            List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
+            List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
+
+            Map<Symbol, Integer> buildLayout = buildSource.getLayout();
+            boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
+                    node.getCriteria().stream()
+                            .map(JoinNode.EquiJoinClause::getRight)
+                            .collect(toImmutableSet())
+                            .containsAll(node.getRightOutputSymbols());
+            int expectedPositions = 10_000;
+
+            boolean eagerCompact = false; //hacky;
+            int partitionCount = getTaskConcurrency(session);
+            //hacky only support inner join for now
+            AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes,probeTypes,buildHashChannel,probeHashChannel,
+                    buildChannels,probeChannels,buildOutputTypes,probeOutputTypes,Optional.of(buildOutputChannels),Optional.of(buildOutputChannels), blockTypeOperators,
+                    expectedPositions, LookupJoinOperators.JoinType.INNER,outputSingleMatch,eagerCompact,partitionCount);
+            PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel,buildChannels,buildTypes,partitionCount);
+            PartitionFunction probePartitionFunction = getLocalPartitionGenerator(probeHashChannel,probeChannels,probeTypes,partitionCount);
+
+            OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+                    buildContext.getNextOperatorId(), node.getId(), true,buildPartitionFunction, joinBridge);
+
+            OperatorFactory probeSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+                    probeContext.getNextOperatorId(), node.getId(), false,probePartitionFunction, joinBridge);
+
+            OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
+                    outerContext.getNextOperatorId(), node.getId(),joinBridge,buildPartitionFunction,probePartitionFunction);
+
+            PhysicalOperation buildSideResult = new PhysicalOperation(buildSideTableOperator,
+                    buildSource);
+
+            PhysicalOperation probeSideResult = new PhysicalOperation(probeSideTableOperator,
+                    probeSource);
+
+            PhysicalOperation outerSideResult = new PhysicalOperation(outerTableOperator,
+                    outerSource);
+
+
+            LocalExecutionPlanContext[] subContexts = new LocalExecutionPlanContext[]{buildContext,probeContext,outerContext};
+            PhysicalOperation[] sources = new PhysicalOperation[]{buildSideResult,probeSideResult,outerSideResult};
+
+
+
+//            context.setDriverInstanceCount(driverInstanceCount);
+
+
+
+            List<Type> types = getSourceOperatorTypes(node, context.getTypes());
+
+            PipelineExecutionStrategy exchangeSourcePipelineExecutionStrategy = GROUPED_EXECUTION;
+            List<DriverFactoryParameters> driverFactoryParametersList = new ArrayList<>();
+            for (int i=0; i<sources.length; i++) {
+                LocalExecutionPlanContext subContext = subContexts[i];
+                PhysicalOperation source = sources[i];
+                driverFactoryParametersList.add(new DriverFactoryParameters(subContext , source));
+
+                if (source.getPipelineExecutionStrategy() == UNGROUPED_EXECUTION) {
+                    exchangeSourcePipelineExecutionStrategy = UNGROUPED_EXECUTION;
+                }
+            }
+
+            LocalExchangeFactory localExchangeFactory = new LocalExchangeFactory(
+                    nodePartitioningManager,
+                    session,
+                    FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
+                    partitionCount,
+                    types,
+                    null,
+                    Optional.empty(),
+                    exchangeSourcePipelineExecutionStrategy,
+                    maxLocalExchangeBufferSize,
+                    blockTypeOperators);
+            for (int i = 0; i < sources.length; i++) {
+                DriverFactoryParameters driverFactoryParameters = driverFactoryParametersList.get(i);
+                PhysicalOperation source = driverFactoryParameters.getSource();
+                LocalExecutionPlanContext subContext = driverFactoryParameters.getSubContext();
+
+                List<Symbol> expectedLayout = node.getInputs().get(i);
+                Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(expectedLayout, source.getLayout());
+
+                context.addDriverFactory(
+                        subContext.isInputDriver(),
+                        false,
+                        new PhysicalOperation(
+                                new LocalExchangeSinkOperatorFactory(
+                                        localExchangeFactory,
+                                        subContext.getNextOperatorId(),
+                                        node.getId(),
+                                        localExchangeFactory.newSinkFactoryId(),
+                                        pagePreprocessor),
+                                source),
+                        subContext.getDriverInstanceCount());
+            }
+
+            // the main driver is not an input... the exchange sources are the input for the plan
+            context.setInputDriver(false);
+
+            // instance count must match the number of partitions in the exchange
+            verify(context.getDriverInstanceCount().getAsInt() == localExchangeFactory.getBufferCount(),
+                    "driver instance count must match the number of exchange partitions");
+
+            return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchangeFactory), makeLayout(node), context, exchangeSourcePipelineExecutionStrategy);
+        }
+        }
+
+        private LocalPartitionGenerator getLocalPartitionGenerator(OptionalInt hashChannel,List<Integer> joinChannels,List<Type> types,int partitionCount) {
+
+            HashGenerator HashGenerator = null;
+            requireNonNull(hashChannel, "probeHashChannel is null");
+            if (hashChannel.isPresent()) {
+                HashGenerator = new PrecomputedHashGenerator(hashChannel.getAsInt());
+            }
+            else {
+                requireNonNull(joinChannels, "probeJoinChannels is null");
+                List<Type> hashTypes = joinChannels.stream()
+                        .map(types::get)
+                        .collect(toImmutableList());
+                HashGenerator = new InterpretedHashGenerator(hashTypes, joinChannels, blockTypeOperators);
+            }
+            return new LocalPartitionGenerator(HashGenerator,partitionCount);
+
         }
 
         @Override

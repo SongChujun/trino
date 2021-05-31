@@ -20,6 +20,8 @@ import io.trino.spi.PageBuilder;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
 import io.trino.spi.type.Type;
+import io.trino.sql.gen.JoinFilterFunctionCompiler;
+import io.trino.type.BlockTypeOperators;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -28,11 +30,15 @@ import org.openjdk.jol.info.ClassLayout;
 
 import javax.annotation.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.stream.IntStream;
 
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
 import static io.trino.operator.LookupJoinOperators.JoinType.FULL_OUTER;
@@ -57,7 +63,6 @@ public final class HashBuildAndProbeTable implements LookupSource
         private boolean currentProbePositionProducedRow;
         private boolean isSequentialProbeIndices;
         private int estimatedProbeBlockBytes;
-        private final PageBuilder buildPageBuilder;
         private long joinPosition = -1;
         private int joinSourcePositions;
         private boolean outputSingleMatch;
@@ -72,8 +77,6 @@ public final class HashBuildAndProbeTable implements LookupSource
 
         private JoinProcessor (List<Type> buildOutputTypes,
                 JoinProbe.JoinProbeFactory joinProbeFactory,
-                Optional<JoinFilterFunction> filterFunction,
-                List<Type> buildTypes,
                 LookupJoinOperators.JoinType joinType,
                 boolean outputSingleMatch,
                 JoinStatisticsCounter statisticsCounter
@@ -86,7 +89,6 @@ public final class HashBuildAndProbeTable implements LookupSource
             this.currentProbePositionProducedRow = false;
             this.isSequentialProbeIndices = false;
             this.estimatedProbeBlockBytes = 0;
-            this.buildPageBuilder = new PageBuilder(requireNonNull(buildTypes, "buildTypes is null"));
             this.outputSingleMatch = outputSingleMatch;
             this.statisticsCounter = statisticsCounter;
 
@@ -177,7 +179,7 @@ public final class HashBuildAndProbeTable implements LookupSource
     }
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(PagesHash.class).instanceSize();
     private static final DataSize CACHE_SIZE = DataSize.of(128, KILOBYTE);
-    private final ObjectArrayList<Block>[] channels;
+    private final List<List<Block>> channels;
     private final IntArrayList positionCounts;
     private int pageCount;
     private int positionCount;
@@ -190,7 +192,7 @@ public final class HashBuildAndProbeTable implements LookupSource
 
 
 
-    private PositionLinks.FactoryBuilder positionLinks;
+    private AdaptiveJoinPositionLinks positionLinks;
 
     private final JoinProbe.JoinProbeFactory joinProbeFactory;
     private List<Type> buildOutputTypes;
@@ -213,36 +215,49 @@ public final class HashBuildAndProbeTable implements LookupSource
     private final JoinStatisticsCounter statisticsCounter;
 
     public HashBuildAndProbeTable(
-            PagesHashStrategy pagesHashStrategy,
+            List<Type> types, //from buildSource.getTypes() -> ; from layout
+            OptionalInt hashChannel,
+            List<Integer> joinChannels,
+            List<Type> buildOutputTypes, // from buildOutput channels
+            BlockTypeOperators blockTypeOperators,
             int expectedPositions,
-            PositionLinks.FactoryBuilder positionLinks,
             JoinProbe.JoinProbeFactory joinProbeFactory,
-            List<Type> buildOutputTypes,
-            Optional<JoinFilterFunction> filterFunction,
             LookupJoinOperators.JoinType joinType,
             boolean outputSingleMatch,
             boolean eagerCompact)
     {
+        this.positionLinks = new AdaptiveJoinPositionLinks(expectedPositions);
+
         this.addresses = new LongArrayList(expectedPositions);
-        this.pagesHashStrategy = requireNonNull(pagesHashStrategy, "pagesHashStrategy is null");
+        this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
+
+
+        channels = new ArrayList<>();
+        for (int i = 0; i<types.size();i++) {
+            channels.add(new ArrayList<>());
+        }
+        this.pagesHashStrategy = new SimplePagesHashStrategy(
+                types,
+                rangeList(types.size()),
+                channels,
+                joinChannels,
+                hashChannel,
+                Optional.empty(),
+                blockTypeOperators);
         this.channelCount = pagesHashStrategy.getChannelCount();
         this.positionCounts = new IntArrayList(1024);
         this.pageCount = 0;
         this.positionCount = 0;
         this.eagerCompact = eagerCompact;
         this.pagesMemorySize = 0;
-        this.positionLinks = positionLinks;
         this.size = 0;
         this.hashCollisions = 0;
         this.expectedHashCollisions = 0;
-        this.filterFunction = requireNonNull(filterFunction, "filterFunction cannot be null").orElse(null);
-        this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
+
+        this.filterFunction =null;//!hacky
         this.joinProbeFactory = requireNonNull(joinProbeFactory, "joinProbeFactory is null");
         this.buildOutputTypes = buildOutputTypes;
-        channels = (ObjectArrayList<Block>[]) new ObjectArrayList[types.size()];
-        for (int i = 0; i < channels.length; i++) {
-            channels[i] = ObjectArrayList.wrap(new Block[1024], 0);
-        }
+
         // reserve memory for the arrays
         this.hashSize = HashCommon.arraySize(expectedPositions, 0.75f);
         mask = hashSize - 1;
@@ -250,10 +265,18 @@ public final class HashBuildAndProbeTable implements LookupSource
         Arrays.fill(key, -1);
         positionToHashes = new byte[hashSize];
         this.statisticsCounter = new JoinStatisticsCounter(joinType);
-        joinProcessor = new JoinProcessor(buildOutputTypes, joinProbeFactory,filterFunction,buildOutputTypes,joinType,outputSingleMatch,statisticsCounter);
+        joinProcessor = new JoinProcessor(buildOutputTypes,joinProbeFactory,joinType,outputSingleMatch,statisticsCounter);
 
 
     }
+
+    private List<Integer> rangeList(int endExclusive)
+    {
+        return IntStream.range(0, endExclusive)
+                .boxed()
+                .collect(toImmutableList());
+    }
+
     public synchronized void addPage(Page page) {
         //Add page to channel and address
         if (page.getPositionCount() == 0) {
@@ -262,14 +285,14 @@ public final class HashBuildAndProbeTable implements LookupSource
         pageCount++;
         positionCount += page.getPositionCount();
         positionCounts.add(page.getPositionCount());
-        int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
+        int pageIndex = (channels.size() > 0) ? channels.get(0).size() : 0;
         int startPosition = addresses.size();
-        for (int i = 0; i < channels.length; i++) {
+        for (int i = 0; i < channels.size(); i++) {
             Block block = page.getBlock(i);
             if (eagerCompact) {
                 block = block.copyRegion(0, block.getPositionCount());
             }
-            channels[i].add(block);
+            channels.get(i).add(block);
             pagesMemorySize += block.getRetainedSizeInBytes();
         }
 
@@ -449,7 +472,7 @@ public final class HashBuildAndProbeTable implements LookupSource
         if (positionLinks == null) {
             return -1;
         }
-        return positionLinks.next(toIntExact(currentJoinPosition), probePosition, allProbeChannelsPage);
+        return positionLinks.next(toIntExact(currentJoinPosition));
     }
 
     @Override
@@ -486,7 +509,7 @@ public final class HashBuildAndProbeTable implements LookupSource
         if (positionLinks == null) {
             return currentJoinPosition;
         }
-        return positionLinks.start(currentJoinPosition, probePosition, allProbeChannelsPage);
+        return positionLinks.start(currentJoinPosition);
     }
 
     @Override

@@ -1,18 +1,11 @@
 package io.trino.operator;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.trino.execution.Lifespan;
 import io.trino.spi.Page;
-import io.trino.spiller.SingleStreamSpillerFactory;
-import io.trino.sql.gen.JoinFilterFunctionCompiler;
 import io.trino.sql.planner.plan.PlanNodeId;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.OptionalInt;
+import java.util.Stack;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -24,27 +17,37 @@ public class OuterJoinResultProcessingOperator
 {
 
     private final OperatorContext operatorContext;
-    private Page current;
-    private IncrementalJoinBridge joinBridge;
+    private final PlanNodeId planNodeId;
+    private HashBuildAndProbeTableBundle tableBundle;
+    private final AdaptiveJoinBridge joinBridge;
+    private final Stack<Page> pageBuffer;
+    private final PartitionFunction buildPartitionFunction;
+    private final PartitionFunction probePartitionFunction;
 
     public static class OuterJoinResultProcessingOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final IncrementalJoinBridge joinBridge;
+        private final AdaptiveJoinBridge joinBridge;
+        private final PartitionFunction buildPartitionFunction;
+        private final PartitionFunction probePartitionFunction;
         private boolean closed;
 
         public OuterJoinResultProcessingOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                IncrementalJoinBridge joinBridge
+                AdaptiveJoinBridge joinBridge,
+                PartitionFunction buildPartitionFunction,
+                PartitionFunction probePartitionFunction
+
         )
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
-
+            this.buildPartitionFunction = buildPartitionFunction;
+            this.probePartitionFunction = probePartitionFunction;
         }
 
         @Override
@@ -54,7 +57,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
 
 //            verify(partitionIndex < lookupSourceFactory.partitions());
-            return new OuterJoinResultProcessingOperator();
+            return new OuterJoinResultProcessingOperator(operatorContext,joinBridge,buildPartitionFunction,probePartitionFunction);
         }
 
         @Override
@@ -72,11 +75,19 @@ public class OuterJoinResultProcessingOperator
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
-            IncrementalJoinBridge joinBridge
+            PlanNodeId planNodeId,
+            AdaptiveJoinBridge joinBridge,
+            PartitionFunction buildPartitionFunction,
+            PartitionFunction probePartitionFunction
     )
     {
         this.operatorContext = operatorContext;
+        this.planNodeId = planNodeId;
         this.joinBridge = joinBridge;
+        this.tableBundle = null;
+        this.buildPartitionFunction = buildPartitionFunction;
+        this.probePartitionFunction = probePartitionFunction;
+        this.pageBuffer = new Stack<>();
     }
 
     @Override
@@ -100,24 +111,29 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        current = page;
-        List<Page> extractedPages = extractPages(page);
-        joinBridge.buildSideInsert(extractedPages.get(0));
-        joinBridge.probeSideProbe(extractedPages.get(0));
-        joinBridge.probeSideInsert(extractedPages.get(2));
-        joinBridge.buildSideProbe(extractedPages.get(2));
-
+        Page[] extractedPages = extractPages(page);
+        if (this.tableBundle==null) {
+            int partition = buildPartitionFunction.getPartition(extractedPages[0],0); //0 is hard code here, in theory, all the positions have the same partition
+            this.tableBundle = joinBridge.getTableBundle(partition);
+        }
+        pageBuffer.add(tableBundle.processBuildSidePage(extractedPages[0]));
+        pageBuffer.add(tableBundle.processProbeSidePage(extractedPages[1]));
     }
 
-    //specification: left: buildSide, middle: buildAndProbeSide, right: probeSide
-    private List<Page> extractPages(Page page) {
-        return null;
+    //specification: left: buildSide, middle: probeSide, right: middle
+    private Page[] extractPages(Page page) {
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public Page getOutput()
     {
-        throw new UnsupportedOperationException();
+        if (pageBuffer.isEmpty())
+        {
+            return null;
+        } else {
+            return pageBuffer.pop();
+        }
     }
 
     @Override
@@ -126,12 +142,9 @@ public class OuterJoinResultProcessingOperator
         throw new UnsupportedOperationException();
     }
 
-
-
-
-
-
-
-
+    @Override
+    public void finish() {
+        return;
+    }
 
 }

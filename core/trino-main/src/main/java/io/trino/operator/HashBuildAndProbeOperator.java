@@ -31,80 +31,35 @@ public class HashBuildAndProbeOperator implements Operator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final List<Integer> outputChannels;
-        private final List<Integer> hashChannels;
-        private final OptionalInt preComputedHashChannel;
-        private final Optional<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> filterFunctionFactory;
-        private final Optional<Integer> sortChannel;
-        private final List<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> searchFunctionFactories;
-        private final PagesIndex.Factory pagesIndexFactory;
-
-        private final int expectedPositions;
-        private final boolean spillEnabled;
-        private final SingleStreamSpillerFactory singleStreamSpillerFactory;
-
-        private final Map<Lifespan, Integer> partitionIndexManager = new HashMap<>();
         private final boolean isBuildSide;
         private boolean closed;
+        private AdaptiveJoinBridge joinBridge;
+        private final PartitionFunction partitionFunction;
 
         public HashBuildAndProbeOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                List<Integer> outputChannels,
-                List<Integer> hashChannels,
-                OptionalInt preComputedHashChannel,
-                Optional<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> filterFunctionFactory,
-                Optional<Integer> sortChannel,
-                List<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> searchFunctionFactories,
-                int expectedPositions,
-                PagesIndex.Factory pagesIndexFactory,
-                boolean spillEnabled,
-                SingleStreamSpillerFactory singleStreamSpillerFactory,
-                boolean isBuildSide)
+                boolean isBuildSide,
+                PartitionFunction partitionFunction,
+                AdaptiveJoinBridge joinBridge)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
-            requireNonNull(sortChannel, "sortChannel cannot be null");
-            requireNonNull(searchFunctionFactories, "searchFunctionFactories is null");
-            checkArgument(sortChannel.isPresent() != searchFunctionFactories.isEmpty(), "both or none sortChannel and searchFunctionFactories must be set");
-
-            this.outputChannels = ImmutableList.copyOf(requireNonNull(outputChannels, "outputChannels is null"));
-            this.hashChannels = ImmutableList.copyOf(requireNonNull(hashChannels, "hashChannels is null"));
-            this.preComputedHashChannel = requireNonNull(preComputedHashChannel, "preComputedHashChannel is null");
-            this.filterFunctionFactory = requireNonNull(filterFunctionFactory, "filterFunctionFactory is null");
-            this.sortChannel = sortChannel;
-            this.searchFunctionFactories = ImmutableList.copyOf(searchFunctionFactories);
-            this.pagesIndexFactory = requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
-            this.spillEnabled = spillEnabled;
-            this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
-
-            this.expectedPositions = expectedPositions;
             this.isBuildSide = isBuildSide;
+            this.partitionFunction = partitionFunction;
+            this.joinBridge = joinBridge;
         }
 
         @Override
-        public HashBuilderOperator createOperator(DriverContext driverContext)
+        public HashBuildAndProbeOperator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
-
-//            PartitionedLookupSourceFactory lookupSourceFactory = this.lookupSourceFactoryManager.getJoinBridge(driverContext.getLifespan());
-            int partitionIndex = getAndIncrementPartitionIndex(driverContext.getLifespan());
-            verify(partitionIndex < lookupSourceFactory.partitions());
             return new HashBuildAndProbeOperator(
                     operatorContext,
-                    lookupSourceFactory,
-                    partitionIndex,
-                    outputChannels,
-                    hashChannels,
-                    preComputedHashChannel,
-                    filterFunctionFactory,
-                    sortChannel,
-                    searchFunctionFactories,
-                    expectedPositions,
-                    pagesIndexFactory,
-                    spillEnabled,
-                    singleStreamSpillerFactory,isBuildSide);
+                    joinBridge,
+                    isBuildSide,
+                    partitionFunction);
         }
 
         @Override
@@ -118,98 +73,38 @@ public class HashBuildAndProbeOperator implements Operator
         {
             throw new UnsupportedOperationException("Parallel hash build cannot be duplicated");
         }
-
-        private int getAndIncrementPartitionIndex(Lifespan lifespan)
-        {
-            return partitionIndexManager.compute(lifespan, (k, v) -> v == null ? 1 : v + 1) - 1;
-        }
     }
-
-
-
-
-
     private static final double INDEX_COMPACTION_ON_REVOCATION_TARGET = 0.8;
 
     private final OperatorContext operatorContext;
     private final LocalMemoryContext localUserMemoryContext;
     private final LocalMemoryContext localRevocableMemoryContext;
-    private final PartitionedLookupSourceFactory lookupSourceFactory;
-    private final ListenableFuture<?> lookupSourceFactoryDestroyed;
-    private final int partitionIndex;
-
-    private final List<Integer> outputChannels;
-    private final List<Integer> hashChannels;
-    private final OptionalInt preComputedHashChannel;
-    private final Optional<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> filterFunctionFactory;
-    private final Optional<Integer> sortChannel;
-    private final List<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> searchFunctionFactories;
-
-    private final PagesIndex index;
-
-    private final boolean spillEnabled;
-    private final SingleStreamSpillerFactory singleStreamSpillerFactory;
-
     private final HashCollisionsCounter hashCollisionsCounter;
 
-    private HashBuilderOperator.State state = HashBuilderOperator.State.CONSUMING_INPUT;
-    private Optional<ListenableFuture<?>> lookupSourceNotNeeded = Optional.empty();
-    private final SpilledLookupSourceHandle spilledLookupSourceHandle = new SpilledLookupSourceHandle();
-    private Optional<SingleStreamSpiller> spiller = Optional.empty();
-    private ListenableFuture<?> spillInProgress = NOT_BLOCKED;
-    private Optional<ListenableFuture<List<Page>>> unspillInProgress = Optional.empty();
-    @Nullable
-    private LookupSourceSupplier lookupSourceSupplier;
-    private OptionalLong lookupSourceChecksum = OptionalLong.empty();
 
-    private Optional<Runnable> finishMemoryRevoke = Optional.empty();
-    private IncrementalJoinBridge joinBridge;
+    private final AdaptiveJoinBridge joinBridge;
+    private final HashBuildAndProbeTableBundle tableBundle;
     private final boolean isBuildSide;
+    private final PartitionFunction partitionFunction;
     private Page result;
 
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
-            PartitionedLookupSourceFactory lookupSourceFactory,
-            int partitionIndex,
-            List<Integer> outputChannels,
-            List<Integer> hashChannels,
-            OptionalInt preComputedHashChannel,
-            Optional<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> filterFunctionFactory,
-            Optional<Integer> sortChannel,
-            List<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> searchFunctionFactories,
-            int expectedPositions,
-            PagesIndex.Factory pagesIndexFactory,
-            boolean spillEnabled,
-            IncrementalJoinBridge joinBridge,
-            boolean isBuildSide
+            AdaptiveJoinBridge joinBridge,
+            boolean isBuildSide,
+            PartitionFunction partitionFunction
             )
     {
-        requireNonNull(pagesIndexFactory, "pagesIndexFactory is null");
-
         this.operatorContext = operatorContext;
-        this.partitionIndex = partitionIndex;
-        this.filterFunctionFactory = filterFunctionFactory;
-        this.sortChannel = sortChannel;
-        this.searchFunctionFactories = searchFunctionFactories;
         this.localUserMemoryContext = operatorContext.localUserMemoryContext();
         this.localRevocableMemoryContext = operatorContext.localRevocableMemoryContext();
-
-        this.index = pagesIndexFactory.newPagesIndex(lookupSourceFactory.getTypes(), expectedPositions);
-        this.lookupSourceFactory = lookupSourceFactory;
-        lookupSourceFactoryDestroyed = lookupSourceFactory.isDestroyed();
-
-        this.outputChannels = outputChannels;
-        this.hashChannels = hashChannels;
-        this.preComputedHashChannel = preComputedHashChannel;
-
         this.hashCollisionsCounter = new HashCollisionsCounter(operatorContext);
         operatorContext.setInfoSupplier(hashCollisionsCounter);
-
-        this.spillEnabled = spillEnabled;
-        this.singleStreamSpillerFactory = requireNonNull(singleStreamSpillerFactory, "singleStreamSpillerFactory is null");
         this.joinBridge = joinBridge;
         this.isBuildSide = isBuildSide;
+        this.partitionFunction = partitionFunction;
+        this.tableBundle = null;
     }
 
     @Override
@@ -222,7 +117,6 @@ public class HashBuildAndProbeOperator implements Operator
     public ListenableFuture<?> isBlocked()
     {
         throw new UnsupportedOperationException();
-//        throw new IllegalStateException("Unhandled state: " + state);
     }
 
     @Override
@@ -234,12 +128,14 @@ public class HashBuildAndProbeOperator implements Operator
     @Override
     public void addInput(Page page)
     {
-//        Page resPage = null;
-        if (isBuildSide){
-            result = joinBridge.processBuildSidePage(page);
-        } else
-        {
-            result =  joinBridge.processProbeSidePage(page);
+        if (this.tableBundle!=null) {
+            int partition = partitionFunction.getPartition(page,0); //0 is hard code here, in theory, all the positions have the same partition
+            this.tableBundle = joinBridge.getTableBundle(partition);
+        }
+        if (isBuildSide) {
+            result = tableBundle.processBuildSidePage(page);
+        } else {
+            result = tableBundle.processProbeSidePage(page);
         }
     }
 

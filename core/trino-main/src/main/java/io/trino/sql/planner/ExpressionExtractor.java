@@ -16,6 +16,7 @@ package io.trino.sql.planner;
 import com.google.common.collect.ImmutableList;
 import io.trino.sql.planner.iterative.GroupReference;
 import io.trino.sql.planner.iterative.Lookup;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.ApplyNode;
@@ -123,6 +124,13 @@ public final class ExpressionExtractor
         {
             node.getFilter().ifPresent(consumer);
             return super.visitJoin(node, context);
+        }
+
+        @Override
+        public Void visitAdaptiveJoin(AdaptiveJoinNode node, Void context)
+        {
+            node.getFilter().ifPresent(consumer);
+            return super.visitAdaptiveJoin(node, context);
         }
 
         @Override

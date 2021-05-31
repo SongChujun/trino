@@ -13,6 +13,7 @@
  */
 package io.trino.sql.planner.plan;
 
+import io.trino.sql.planner.LocalExecutionPlanner;
 import io.trino.sql.planner.iterative.GroupReference;
 
 public abstract class PlanVisitor<R, C>
@@ -91,6 +92,10 @@ public abstract class PlanVisitor<R, C>
 
     public R visitJoin(JoinNode node, C context)
     {
+        return visitPlan(node, context);
+    }
+//    LocalExecutionPlanner.PhysicalOperation visitAdaptiveJoin(JoinNode node, LocalExecutionPlanner.LocalExecutionPlanContext context)
+    public R visitAdaptiveJoin(AdaptiveJoinNode node, C context) {
         return visitPlan(node, context);
     }
 
