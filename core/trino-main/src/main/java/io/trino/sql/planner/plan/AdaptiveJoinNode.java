@@ -261,7 +261,6 @@ public class AdaptiveJoinNode
         return ImmutableList.<Symbol>builder()
                 .addAll(leftOutputSymbols)
                 .addAll(rightOutputSymbols)
-//                .addAll(OutputSymbols)
                 .build();
     }
 

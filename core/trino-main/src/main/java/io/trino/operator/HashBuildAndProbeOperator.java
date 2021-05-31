@@ -83,7 +83,7 @@ public class HashBuildAndProbeOperator implements Operator
 
 
     private final AdaptiveJoinBridge joinBridge;
-    private final HashBuildAndProbeTableBundle tableBundle;
+    private HashBuildAndProbeTableBundle tableBundle;
     private final boolean isBuildSide;
     private final PartitionFunction partitionFunction;
     private Page result;

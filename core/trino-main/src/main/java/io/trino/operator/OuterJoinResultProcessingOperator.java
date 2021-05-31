@@ -57,7 +57,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
 
 //            verify(partitionIndex < lookupSourceFactory.partitions());
-            return new OuterJoinResultProcessingOperator(operatorContext,joinBridge,buildPartitionFunction,probePartitionFunction);
+            return new OuterJoinResultProcessingOperator(operatorContext,planNodeId,joinBridge,buildPartitionFunction,probePartitionFunction);
         }
 
         @Override

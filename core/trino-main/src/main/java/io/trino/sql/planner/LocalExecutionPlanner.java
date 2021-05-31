@@ -2114,17 +2114,16 @@ public class LocalExecutionPlanner
             List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
             List<Symbol> rightSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
 
-//            List<Integer> probeJoinChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, node.getLeft().getLayout()));
-
 
             switch (node.getType()) {
                 case INNER:
+                    return createAdaptiveJoin(node,leftSymbols,rightSymbols,context);
                 case LEFT:
                 case RIGHT:
                 case FULL:
-//                    return createAdaptiveJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+
         }
 
         @Override
@@ -3257,7 +3256,7 @@ public class LocalExecutionPlanner
                             .map(JoinNode.EquiJoinClause::getRight)
                             .collect(toImmutableSet())
                             .containsAll(node.getRightOutputSymbols());
-            int expectedPositions = 10_000;
+            int expectedPositions = 10_000_000; //hard code here, subject to change in the future
 
             boolean eagerCompact = false; //hacky;
             int partitionCount = getTaskConcurrency(session);
@@ -3291,11 +3290,6 @@ public class LocalExecutionPlanner
             PhysicalOperation[] sources = new PhysicalOperation[]{buildSideResult,probeSideResult,outerSideResult};
 
 
-
-//            context.setDriverInstanceCount(driverInstanceCount);
-
-
-
             List<Type> types = getSourceOperatorTypes(node, context.getTypes());
 
             PipelineExecutionStrategy exchangeSourcePipelineExecutionStrategy = GROUPED_EXECUTION;
@@ -3326,7 +3320,7 @@ public class LocalExecutionPlanner
                 PhysicalOperation source = driverFactoryParameters.getSource();
                 LocalExecutionPlanContext subContext = driverFactoryParameters.getSubContext();
 
-                List<Symbol> expectedLayout = node.getInputs().get(i);
+                List<Symbol> expectedLayout = node.getOutputSymbols();
                 Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(expectedLayout, source.getLayout());
 
                 context.addDriverFactory(
@@ -3351,8 +3345,8 @@ public class LocalExecutionPlanner
                     "driver instance count must match the number of exchange partitions");
 
             return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchangeFactory), makeLayout(node), context, exchangeSourcePipelineExecutionStrategy);
-        }
-        }
+    }
+
 
         private LocalPartitionGenerator getLocalPartitionGenerator(OptionalInt hashChannel,List<Integer> joinChannels,List<Type> types,int partitionCount) {
 
