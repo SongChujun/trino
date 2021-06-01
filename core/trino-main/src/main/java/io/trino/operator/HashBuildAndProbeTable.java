@@ -69,12 +69,6 @@ public final class HashBuildAndProbeTable implements LookupSource
         private final boolean probeOnOuterSide;
         private JoinProbe probe;
         private final JoinStatisticsCounter statisticsCounter;
-
-
-
-
-
-
         private JoinProcessor (List<Type> buildOutputTypes,
                 JoinProbe.JoinProbeFactory joinProbeFactory,
                 LookupJoinOperators.JoinType joinType,
@@ -174,11 +168,9 @@ public final class HashBuildAndProbeTable implements LookupSource
         {
             return 0;
         }
-
-
     }
-    private static final int INSTANCE_SIZE = ClassLayout.parseClass(PagesHash.class).instanceSize();
-    private static final DataSize CACHE_SIZE = DataSize.of(128, KILOBYTE);
+    private static final int INSTANCE_SIZE = ClassLayout.parseClass(HashBuildAndProbeTable.class).instanceSize();
+//    private static final DataSize CACHE_SIZE = DataSize.of(128, KILOBYTE);
     private final List<List<Block>> channels;
     private final IntArrayList positionCounts;
     private int pageCount;
@@ -310,9 +302,14 @@ public final class HashBuildAndProbeTable implements LookupSource
         // We will process addresses in batches, to save memory on array of hashes.
         long hashCollisionsLocal = 0;
 
-        for (int position = startPosition; position <= addresses.size(); position++) {
+        for (int position = startPosition; position < addresses.size(); position++) {
             long hash = readHashPosition(position);
+            positionToHashes[position] = (byte) hash;
             int pos = getHashPosition(hash, mask);
+            if (pos>key.length-1) {
+                System.out.println(pos);
+                assert false;
+            }
 
             // look for an empty slot or a slot containing this key
             while (key[pos] != -1) {
@@ -331,14 +328,14 @@ public final class HashBuildAndProbeTable implements LookupSource
             }
 
             key[pos] = position;
-            }
+        }
 
-            size = sizeOf(addresses.elements()) + pagesHashStrategy.getSizeInBytes() +
-                    sizeOf(key) + sizeOf(positionToHashes);
-            hashCollisions += hashCollisionsLocal;
-            expectedHashCollisions = estimateNumberOfHashCollisions(addresses.size(), hashSize);
+        size = sizeOf(addresses.elements()) + pagesHashStrategy.getSizeInBytes() +
+                sizeOf(key) + sizeOf(positionToHashes);
+        hashCollisions += hashCollisionsLocal;
+        expectedHashCollisions = estimateNumberOfHashCollisions(addresses.size(), hashSize);
 
-            estimatedSize = calculateEstimatedSize();
+        estimatedSize = calculateEstimatedSize();
     }
 
     public synchronized Page joinPage(Page page) {
@@ -463,7 +460,7 @@ public final class HashBuildAndProbeTable implements LookupSource
 
     private long calculateEstimatedSize()
     {
-        throw new java.lang.UnsupportedOperationException("Not implemented yet.");
+        return 0;
     }
 
     @Override

@@ -3228,7 +3228,7 @@ public class LocalExecutionPlanner
 
             PlanNode outerNode = node.getRight();
             LocalExecutionPlanContext outerContext = context.createSubContext();
-            PhysicalOperation outerSource = probeNode.accept(this, outerContext);
+            PhysicalOperation outerSource = outerNode.accept(this, outerContext);
 
 
             List<Type> buildTypes = buildSource.getTypes();
