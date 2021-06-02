@@ -88,7 +88,6 @@ public final class HashBuildAndProbeTable implements LookupSource
 
             probeOnOuterSide = joinType == PROBE_OUTER || joinType == FULL_OUTER;
 
-
         }
         public Page joinPage(Page page) {
 
@@ -113,6 +112,15 @@ public final class HashBuildAndProbeTable implements LookupSource
             Page outputPage = pageBuilder.build(probe);
             pageBuilder.reset();
             return outputPage;
+        }
+
+        public void reset() {
+            this.joinPosition = -1;
+            this.pageBuilder.reset();
+            this.currentProbePositionProducedRow = false;
+            this.isSequentialProbeIndices = false;
+            this.estimatedProbeBlockBytes = 0;
+            this.probeIndexBuilder.clear();
         }
 
         private boolean joinCurrentPosition(LookupSource lookupSource)
@@ -230,16 +238,16 @@ public final class HashBuildAndProbeTable implements LookupSource
         }
         this.pagesHashStrategy = new SimplePagesHashStrategy(
                 types,
-                rangeList(types.size()),
+                rangeList(buildOutputTypes.size()),
                 channels,
                 joinChannels,
                 hashChannel,
                 Optional.empty(),
                 blockTypeOperators);
         this.channelCount = pagesHashStrategy.getChannelCount();
+        this.positionCount = 0;
         this.positionCounts = new IntArrayList(1024);
         this.pageCount = 0;
-        this.positionCount = 0;
         this.eagerCompact = eagerCompact;
         this.pagesMemorySize = 0;
         this.size = 0;
@@ -306,10 +314,6 @@ public final class HashBuildAndProbeTable implements LookupSource
             long hash = readHashPosition(position);
             positionToHashes[position] = (byte) hash;
             int pos = getHashPosition(hash, mask);
-            if (pos>key.length-1) {
-                System.out.println(pos);
-                assert false;
-            }
 
             // look for an empty slot or a slot containing this key
             while (key[pos] != -1) {
@@ -340,6 +344,24 @@ public final class HashBuildAndProbeTable implements LookupSource
 
     public synchronized Page joinPage(Page page) {
         return joinProcessor.joinPage(page);
+    }
+
+
+    //only clears the data, not the controlling information
+    public void reset() {
+        for (List<Block> blockList: channels) {
+            blockList.clear();
+        }
+        this.positionLinks.reset();
+        this.addresses.clear();
+        this.positionCount = 0;
+        this.positionCounts.clear();
+        this.pageCount = 0;
+        this.pagesMemorySize = 0;
+        this.size = 0;
+        this.hashCollisions = 0;
+        this.expectedHashCollisions = 0;
+        Arrays.fill(positionToHashes,(byte)0);
     }
     @Override
     public final int getChannelCount()
@@ -488,17 +510,17 @@ public final class HashBuildAndProbeTable implements LookupSource
     public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage)
     {
         int addressIndex = getAddressIndex(position, hashChannelsPage);
-        return startJoinPosition(addressIndex, position, allChannelsPage);
+        return startJoinPosition(addressIndex);
     }
 
     @Override
     public long getJoinPosition(int position, Page hashChannelsPage, Page allChannelsPage, long rawHash)
     {
         int addressIndex = getAddressIndex(position, hashChannelsPage, rawHash);
-        return startJoinPosition(addressIndex, position, allChannelsPage);
+        return startJoinPosition(addressIndex);
     }
 
-    private long startJoinPosition(int currentJoinPosition, int probePosition, Page allProbeChannelsPage)
+    private long startJoinPosition(int currentJoinPosition)
     {
         if (currentJoinPosition == -1) {
             return -1;

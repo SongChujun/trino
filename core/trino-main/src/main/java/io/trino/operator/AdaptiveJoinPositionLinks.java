@@ -36,7 +36,6 @@ public final class AdaptiveJoinPositionLinks
         Arrays.fill(this.positionLinks,-1);
     }
 
-//    @Override
     public int start(int position)
     {
         return position;
@@ -48,15 +47,17 @@ public final class AdaptiveJoinPositionLinks
         return left;
     }
 
-//    @Override
     public int next(int position)
     {
         return positionLinks[position];
     }
 
-//    @Override
     public long getSizeInBytes()
     {
         return INSTANCE_SIZE + sizeOf(positionLinks);
+    }
+
+    public void reset() {
+        Arrays.fill(this.positionLinks,-1);
     }
 }

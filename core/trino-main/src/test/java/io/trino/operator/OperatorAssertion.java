@@ -310,6 +310,21 @@ public final class OperatorAssertion
         assertEqualsIgnoreOrder(actual.getMaterializedRows(), expected.getMaterializedRows());
     }
 
+    public static void assertPagesEqualIgnoreOrder(
+            Session session,
+            List<Page> actualPages,
+            MaterializedResult expected,
+            boolean hashEnabled,
+            Optional<Integer> hashChannel)
+    {
+        if (hashEnabled && hashChannel.isPresent()) {
+            // Drop the hashChannel for all pages
+            actualPages = dropChannel(actualPages, ImmutableList.of(hashChannel.get()));
+        }
+        MaterializedResult actual = toMaterializedResult(session, expected.getTypes(), actualPages);
+        assertEqualsIgnoreOrder(actual.getMaterializedRows(), expected.getMaterializedRows());
+    }
+
     public static void assertOperatorIsBlocked(Operator operator)
     {
         assertOperatorIsBlocked(operator, BLOCKED_DEFAULT_TIMEOUT);
