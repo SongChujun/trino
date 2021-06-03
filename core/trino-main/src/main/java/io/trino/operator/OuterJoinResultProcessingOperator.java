@@ -1,53 +1,70 @@
 package io.trino.operator;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.trino.spi.Page;
+import io.trino.spi.PageBuilder;
+import io.trino.sql.planner.Symbol;
+import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Stack;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public class OuterJoinResultProcessingOperator
         implements Operator
 {
-
-    private final OperatorContext operatorContext;
-    private final PlanNodeId planNodeId;
-    private HashBuildAndProbeTableBundle tableBundle;
-    private final AdaptiveJoinBridge joinBridge;
-    private final Stack<Page> pageBuffer;
-    private final PartitionFunction buildPartitionFunction;
-    private final PartitionFunction probePartitionFunction;
-
     public static class OuterJoinResultProcessingOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
         private final AdaptiveJoinBridge joinBridge;
+        private final boolean isInnerJoin;
         private final PartitionFunction buildPartitionFunction;
         private final PartitionFunction probePartitionFunction;
         private boolean closed;
+        private final List<Symbol> leftSymbols;
+        private final List<Symbol> rightSymbols;
+        private final List<Symbol> leftJoinSymbols;
+        private final List<Symbol> rightJoinSymbols;
+        private final List<Symbol> outputSymbols;
 
         public OuterJoinResultProcessingOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
                 AdaptiveJoinBridge joinBridge,
+                boolean isInnerJoin,
                 PartitionFunction buildPartitionFunction,
-                PartitionFunction probePartitionFunction
-
+                PartitionFunction probePartitionFunction,
+                List<Symbol> leftSymbols,
+                List<Symbol> rightSymbols,
+                List<Symbol> leftJoinSymbols,
+                List<Symbol> rightJoinSymbols,
+                List<Symbol> outputSymbols
         )
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
+            this.isInnerJoin = isInnerJoin;
             this.buildPartitionFunction = buildPartitionFunction;
             this.probePartitionFunction = probePartitionFunction;
+            this.leftSymbols = leftSymbols;
+            this.rightSymbols = rightSymbols;
+            this.leftJoinSymbols = leftJoinSymbols;
+            this.rightJoinSymbols = rightJoinSymbols;
+            this.outputSymbols = outputSymbols;
         }
 
         @Override
@@ -56,8 +73,8 @@ public class OuterJoinResultProcessingOperator
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
 
-//            verify(partitionIndex < lookupSourceFactory.partitions());
-            return new OuterJoinResultProcessingOperator(operatorContext,planNodeId,joinBridge,buildPartitionFunction,probePartitionFunction);
+            return new OuterJoinResultProcessingOperator(operatorContext,planNodeId,isInnerJoin,joinBridge,buildPartitionFunction,probePartitionFunction,
+                    leftSymbols,rightSymbols,leftJoinSymbols,rightJoinSymbols,outputSymbols);
         }
 
         @Override
@@ -73,20 +90,46 @@ public class OuterJoinResultProcessingOperator
         }
     }
 
+    private final OperatorContext operatorContext;
+    private final PlanNodeId planNodeId;
+    private final boolean isInnerJoin;
+    private HashBuildAndProbeTableBundle tableBundle;
+    private final AdaptiveJoinBridge joinBridge;
+    private final Stack<Page> pageBuffer;
+    private final PartitionFunction buildPartitionFunction;
+    private final PartitionFunction probePartitionFunction;
+    private final List<Symbol> leftSymbols;
+    private final List<Symbol> rightSymbols;
+    private final List<Symbol> leftJoinSymbols;
+    private final List<Symbol> rightJoinSymbols;
+    private final List<Symbol> outputSymbols;
+
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
             PlanNodeId planNodeId,
+            boolean isInnerJoin,
             AdaptiveJoinBridge joinBridge,
             PartitionFunction buildPartitionFunction,
-            PartitionFunction probePartitionFunction
+            PartitionFunction probePartitionFunction,
+            List<Symbol> leftSymbols,
+            List<Symbol> rightSymbols,
+            List<Symbol> leftJoinSymbols,
+            List<Symbol> rightJoinSymbols,
+            List<Symbol> outputSymbols
     )
     {
         this.operatorContext = operatorContext;
         this.planNodeId = planNodeId;
+        this.isInnerJoin = isInnerJoin;
         this.joinBridge = joinBridge;
         this.tableBundle = null;
         this.buildPartitionFunction = buildPartitionFunction;
         this.probePartitionFunction = probePartitionFunction;
+        this.leftSymbols = leftSymbols;
+        this.rightSymbols = rightSymbols;
+        this.leftJoinSymbols = leftJoinSymbols;
+        this.rightJoinSymbols = rightJoinSymbols;
+        this.outputSymbols = outputSymbols;
         this.pageBuffer = new Stack<>();
     }
 
@@ -111,7 +154,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        Page[] extractedPages = extractPages(page);
+        Page[] extractedPages = extractPages(page,isInnerJoin);
         if (this.tableBundle==null) {
             int partition = buildPartitionFunction.getPartition(extractedPages[0],0); //0 is hard code here, in theory, all the positions have the same partition
             this.tableBundle = joinBridge.getTableBundle(partition);
@@ -120,9 +163,69 @@ public class OuterJoinResultProcessingOperator
         pageBuffer.add(tableBundle.processProbeSidePage(extractedPages[1]));
     }
 
-    //specification: left: buildSide, middle: probeSide, right: middle
-    private Page[] extractPages(Page page) {
-        throw new UnsupportedOperationException();
+    //specification: left: buildSide, middle: probeSide, right: outerside
+    //input format: buildSideDate, probeSideData
+    //inner join is assumed.
+    private Page[] extractPages(Page page, boolean isInnerJoin) {
+        assert isInnerJoin;
+        //nullIndicators encoding: 0 stands for null,t, 1 stands for t,null, 2 stands for s,t ,3 for null,null
+        int[] nullIndicators = new int[page.getPositionCount()];
+        Map<Symbol, Integer> layout = makeLayout(leftSymbols,rightSymbols);
+        for (int i = 0;i<page.getPositionCount();i++) {
+            boolean leftNull = false;
+            boolean rightNull = false;
+            for (int channel: leftJoinSymbols.stream().map(layout::get).collect(Collectors.toList())) {
+                if (page.getBlock(channel).isNull(i)) {
+                    leftNull = true;
+                    break;
+                }
+            }
+            for (int channel: rightJoinSymbols.stream().map(layout::get).collect(Collectors.toList())) {
+                if (page.getBlock(channel).isNull(i)) {
+                    rightNull = true;
+                    break;
+                }
+            }
+            if ((leftNull)&&(!rightNull)) {
+                nullIndicators[i] = 0;
+            } else if ((!leftNull)&&(rightNull)) {
+                nullIndicators[i] = 1;
+            } else if ((!leftNull)&&(!rightNull)) {
+                nullIndicators[i] = 2;
+            } else {
+                nullIndicators[i] = 3;
+            }
+        }
+        int[] leftRetainedPositions = Arrays.stream(nullIndicators).filter(value -> (value==1||value==2)).toArray();
+        int[] rightRetainedPositions = Arrays.stream(nullIndicators).filter(value -> (value==0||value==2)).toArray();
+        int[] outputRetainedPositions = Arrays.stream(nullIndicators).filter(value -> value==2).toArray();
+        Page leftPage = page.copyPositions(leftRetainedPositions,0,leftRetainedPositions.length).getColumns(IntStream.range(0, leftSymbols.size()).toArray());
+        Page rightPage = page.copyPositions(rightRetainedPositions,0,rightRetainedPositions.length).getColumns(IntStream.range(leftSymbols.size(), leftSymbols.size()+rightSymbols.size()).toArray());
+        Page outputPage = page.copyPositions(outputRetainedPositions,0,rightRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i->i).toArray());
+        return new Page[]{leftPage,rightPage,outputPage};
+    }
+
+    private ImmutableMap<Symbol, Integer> makeLayout(List<Symbol> leftSymbols, List<Symbol> rightSymbols)
+    {
+        ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+        int channel = 0;
+        for (Symbol symbol : leftSymbols) {
+            outputMappings.put(symbol, channel);
+            channel++;
+        }
+        for (Symbol symbol : rightSymbols) {
+            outputMappings.put(symbol, channel);
+            channel++;
+        }
+
+        return outputMappings.build();
+    }
+
+    private List<Integer> rangeList(int endExclusive)
+    {
+        return IntStream.range(0, endExclusive)
+                .boxed()
+                .collect(toImmutableList());
     }
 
     @Override

@@ -53,7 +53,8 @@ public class AdaptiveJoinNode
     private final List<JoinNode.EquiJoinClause> criteria;
     private final List<Symbol> leftOutputSymbols;
     private final List<Symbol> rightOutputSymbols;
-    private final List<Symbol> outerOutputSymbols;
+    private final List<Symbol> outerLeftSymbols;
+    private final List<Symbol> outerRightSymbols;
     private final boolean maySkipOutputDuplicates;
     private final Optional<Expression> filter;
     private final Optional<Symbol> leftHashSymbol;
@@ -76,7 +77,8 @@ public class AdaptiveJoinNode
             @JsonProperty("criteria") List<JoinNode.EquiJoinClause> criteria,
             @JsonProperty("leftOutputSymbols") List<Symbol> leftOutputSymbols,
             @JsonProperty("rightOutputSymbols") List<Symbol> rightOutputSymbols,
-            @JsonProperty("outerOutputSymbols") List<Symbol> outerOutputSymbols,
+            @JsonProperty("outerLeftSymbols") List<Symbol> outerLeftSymbols,
+            @JsonProperty("outerRightSymbols") List<Symbol> outerRightSymbols,
             @JsonProperty("maySkipOutputDuplicates") boolean maySkipOutputDuplicates,
             @JsonProperty("filter") Optional<Expression> filter,
             @JsonProperty("leftHashSymbol") Optional<Symbol> leftHashSymbol,
@@ -95,7 +97,8 @@ public class AdaptiveJoinNode
         requireNonNull(criteria, "criteria is null");
         requireNonNull(leftOutputSymbols, "leftOutputSymbols is null");
         requireNonNull(rightOutputSymbols, "rightOutputSymbols is null");
-        requireNonNull(outerOutputSymbols, "rightOutputSymbols is null");
+        requireNonNull(outerLeftSymbols, "rightOutputSymbols is null");
+        requireNonNull(outerRightSymbols, "rightOutputSymbols is null");
         requireNonNull(filter, "filter is null");
         requireNonNull(leftHashSymbol, "leftHashSymbol is null");
         requireNonNull(rightHashSymbol, "rightHashSymbol is null");
@@ -110,7 +113,8 @@ public class AdaptiveJoinNode
         this.criteria = ImmutableList.copyOf(criteria);
         this.leftOutputSymbols = ImmutableList.copyOf(leftOutputSymbols);
         this.rightOutputSymbols = ImmutableList.copyOf(rightOutputSymbols);
-        this.outerOutputSymbols = ImmutableList.copyOf(outerOutputSymbols);
+        this.outerLeftSymbols = ImmutableList.copyOf(outerLeftSymbols);
+        this.outerRightSymbols = ImmutableList.copyOf(outerRightSymbols);
         this.maySkipOutputDuplicates = maySkipOutputDuplicates;
         this.filter = filter;
         this.leftHashSymbol = leftHashSymbol;
@@ -152,25 +156,26 @@ public class AdaptiveJoinNode
 
     public AdaptiveJoinNode flipChildren()
     {
-        return new AdaptiveJoinNode(
-                getId(),
-                flipType(type),
-                right,
-                left,
-                outer,
-                flipJoinCriteria(criteria),
-                rightOutputSymbols,
-                leftOutputSymbols,
-                outerOutputSymbols,
-                maySkipOutputDuplicates,
-                filter,
-                rightHashSymbol,
-                leftHashSymbol,
-                outerHashSymbol,
-                distributionType,
-                spillable,
-                ImmutableMap.of(), // dynamicFilters are invalid after flipping children
-                reorderJoinStatsAndCost);
+        throw new UnsupportedOperationException();
+//        return new AdaptiveJoinNode(
+//                getId(),
+//                flipType(type),
+//                right,
+//                left,
+//                outer,
+//                flipJoinCriteria(criteria),
+//                rightOutputSymbols,
+//                leftOutputSymbols,
+//                outerOutputSymbols,
+//                maySkipOutputDuplicates,
+//                filter,
+//                rightHashSymbol,
+//                leftHashSymbol,
+//                outerHashSymbol,
+//                distributionType,
+//                spillable,
+//                ImmutableMap.of(), // dynamicFilters are invalid after flipping children
+//                reorderJoinStatsAndCost);
     }
 
     private static JoinNode.Type flipType(JoinNode.Type type)
@@ -229,6 +234,18 @@ public class AdaptiveJoinNode
     public List<Symbol> getRightOutputSymbols()
     {
         return rightOutputSymbols;
+    }
+
+    @JsonProperty("outerLeftSymbols")
+    public List<Symbol> getOuterLeftSymbols()
+    {
+        return outerLeftSymbols;
+    }
+
+    @JsonProperty("outerRightSymbols")
+    public List<Symbol> getOuterRightSymbols()
+    {
+        return outerRightSymbols;
     }
 
     @JsonProperty("filter")
@@ -303,28 +320,33 @@ public class AdaptiveJoinNode
     @Override
     public AdaptiveJoinNode replaceChildren(List<PlanNode> newChildren)
     {
-        checkArgument(newChildren.size() == 3, "expected newChildren to contain 2 nodes");
-        return new AdaptiveJoinNode(getId(), type, newChildren.get(0), newChildren.get(1), newChildren.get(2), criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
+        throw new UnsupportedOperationException();
+//        checkArgument(newChildren.size() == 3, "expected newChildren to contain 2 nodes");
+//        return new AdaptiveJoinNode(getId(), type, newChildren.get(0), newChildren.get(1), newChildren.get(2), criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withDistributionType(JoinNode.DistributionType distributionType)
     {
-        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, Optional.of(distributionType), spillable, dynamicFilters, reorderJoinStatsAndCost);
+        throw new UnsupportedOperationException();
+//        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, Optional.of(distributionType), spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withSpillable(boolean spillable)
     {
-        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, Optional.of(spillable), dynamicFilters, reorderJoinStatsAndCost);
+        throw new UnsupportedOperationException();
+//        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, Optional.of(spillable), dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withMaySkipOutputDuplicates()
     {
-        return new AdaptiveJoinNode(getId(), type, left, right,outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, true, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
+        throw new UnsupportedOperationException();
+//        return new AdaptiveJoinNode(getId(), type, left, right,outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, true, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withReorderJoinStatsAndCost(PlanNodeStatsAndCostSummary statsAndCost)
     {
-        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, Optional.of(statsAndCost));
+        throw new UnsupportedOperationException();
+//        return new AdaptiveJoinNode(getId(), type, left, right, outer, criteria, leftOutputSymbols, rightOutputSymbols, outerOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, Optional.of(statsAndCost));
     }
 
     public boolean isCrossJoin()

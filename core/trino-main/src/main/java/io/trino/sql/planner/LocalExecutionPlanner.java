@@ -2102,7 +2102,6 @@ public class LocalExecutionPlanner
         {
             // Register dynamic filters, allowing the scan operators to wait for the collection completion.
             // Skip dynamic filters that are not used locally (e.g. in case of distributed joins).
-            // why dynamic join on left side only?
             Set<DynamicFilterId> localDynamicFilters = node.getDynamicFilters().keySet().stream()
                     .filter(getConsumedDynamicFilterIds(node.getLeft())::contains)
                     .collect(toImmutableSet());
@@ -3234,7 +3233,7 @@ public class LocalExecutionPlanner
             List<Type> buildTypes = buildSource.getTypes();
             List<Type> probeTypes = probeSource.getTypes();
             List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), buildSource.getLayout()));
-            List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), probeSource.getLayout()));
+            List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), probeSource.getLayout()));
 
             ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
                     .map(buildSource.getTypes()::get)
@@ -3248,7 +3247,7 @@ public class LocalExecutionPlanner
             OptionalInt probeHashChannel = node.getLeftHashSymbol().map(channelGetter(probeSource))
                     .map(OptionalInt::of).orElse(OptionalInt.empty());
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
-            List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
+            List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, buildSource.getLayout()));
 
             Map<Symbol, Integer> buildLayout = buildSource.getLayout();
             boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
@@ -3274,7 +3273,9 @@ public class LocalExecutionPlanner
                     probeContext.getNextOperatorId(), node.getId(), false,probePartitionFunction, joinBridge);
 
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                    outerContext.getNextOperatorId(), node.getId(),joinBridge,buildPartitionFunction,probePartitionFunction);
+                    outerContext.getNextOperatorId(), node.getId(),joinBridge, true, buildPartitionFunction,probePartitionFunction,
+                    node.getOuterLeftSymbols(),node.getOuterRightSymbols(),leftSymbols,rightSymbols,node.getOutputSymbols()
+            );
 
             PhysicalOperation buildSideResult = new PhysicalOperation(buildSideTableOperator,
                     buildSource);
