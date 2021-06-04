@@ -1,0 +1,56 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.trino.operator.join;
+import io.trino.operator.join.ArrayPositionLinks;
+import org.openjdk.jol.info.ClassLayout;
+import java.util.Arrays;
+import static io.airlift.slice.SizeOf.sizeOf;
+
+// This is a special positionlink for adaptive join, a little hacky
+public final class AdaptiveJoinPositionLinks
+{
+    private static final int INSTANCE_SIZE = ClassLayout.parseClass(ArrayPositionLinks.class).instanceSize();
+    private final int[] positionLinks;
+
+    public AdaptiveJoinPositionLinks(int len)
+    {
+        this.positionLinks = new int[len];
+        Arrays.fill(this.positionLinks,-1);
+    }
+
+    public int start(int position)
+    {
+        return position;
+    }
+
+    public int link(int left, int right)
+    {
+        positionLinks[left] = right;
+        return left;
+    }
+
+    public int next(int position)
+    {
+        return positionLinks[position];
+    }
+
+    public long getSizeInBytes()
+    {
+        return INSTANCE_SIZE + sizeOf(positionLinks);
+    }
+
+    public void reset() {
+        Arrays.fill(this.positionLinks,-1);
+    }
+}
