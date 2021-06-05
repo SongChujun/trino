@@ -112,7 +112,7 @@ public class HashBuildAndProbeOperator implements Operator
     {
         if (this.table!=null) {
             int partition = partitionFunction.getPartition(page,0); //0 is hard code here, in theory, all the positions have the same partition
-            this.table = joinBridge.getTable(partition);
+            this.table = joinBridge.getHashTable(partition);
         }
         table.addPage(page);
     }

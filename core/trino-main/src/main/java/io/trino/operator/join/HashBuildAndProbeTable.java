@@ -34,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
 import static com.google.common.base.Verify.verify;
@@ -67,6 +68,7 @@ public final class HashBuildAndProbeTable implements LookupSource
         private final boolean probeOnOuterSide;
         private JoinProbe probe;
         private final JoinStatisticsCounter statisticsCounter;
+        private AtomicBoolean buildFinished;
         private JoinProcessor (List<Type> buildOutputTypes,
                 JoinProbe.JoinProbeFactory joinProbeFactory,
                 LookupJoinOperatorFactory.JoinType joinType,
@@ -88,6 +90,9 @@ public final class HashBuildAndProbeTable implements LookupSource
 
         }
         public Page joinPage(Page page) {
+            if (!checkBuildFinished()) {
+                return null;
+            }
 
             probe = joinProbeFactory.createJoinProbe(page);
             do {
@@ -119,6 +124,14 @@ public final class HashBuildAndProbeTable implements LookupSource
             this.isSequentialProbeIndices = false;
             this.estimatedProbeBlockBytes = 0;
             this.probeIndexBuilder.clear();
+        }
+
+        public void buildFinished() {
+            buildFinished.compareAndSet(false,true);
+        }
+
+        public boolean checkBuildFinished() {
+            return  buildFinished.get();
         }
 
         private boolean joinCurrentPosition(LookupSource lookupSource)

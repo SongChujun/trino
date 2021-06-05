@@ -18,9 +18,7 @@ import java.util.Stack;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -156,7 +154,10 @@ public class OuterJoinResultProcessingOperator
             int partition = buildPartitionFunction.getPartition(extractedPages[0],0); //0 is hard code here, in theory, all the positions have the same partition
             this.hashTable = joinBridge.getHashTable(partition);
         }
-        pageBuffer.add(hashTable.joinPage(extractedPages[0]));
+        Page joinResult = hashTable.joinPage(extractedPages[0]);
+        if (joinResult!=null) {
+            pageBuffer.add(joinResult);
+        }
         pageBuffer.add(extractedPages[1]);
     }
 
