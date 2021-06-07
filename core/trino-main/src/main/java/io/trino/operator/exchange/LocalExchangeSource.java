@@ -44,15 +44,18 @@ public class LocalExchangeSource
     private final BlockingQueue<PageReference> buffer = new LinkedBlockingDeque<>();
     private final AtomicLong bufferedBytes = new AtomicLong();
 
+    private final int index;
+
     @Nullable
     @GuardedBy("this")
     private SettableFuture<?> notEmptyFuture; // null indicates no callback has been registered
 
     private volatile boolean finishing;
 
-    public LocalExchangeSource(Consumer<LocalExchangeSource> onFinish)
+    public LocalExchangeSource(Consumer<LocalExchangeSource> onFinish, int index)
     {
         this.onFinish = requireNonNull(onFinish, "onFinish is null");
+        this.index = index;
     }
 
     public LocalExchangeBufferInfo getBufferInfo()
@@ -60,6 +63,10 @@ public class LocalExchangeSource
         // This must be lock free to assure task info creation is fast
         // Note: the stats my be internally inconsistent
         return new LocalExchangeBufferInfo(bufferedBytes.get(), buffer.size());
+    }
+
+    public int getIndex() {
+        return index;
     }
 
     void addPage(PageReference pageReference)

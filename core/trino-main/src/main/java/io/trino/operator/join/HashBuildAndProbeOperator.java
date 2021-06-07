@@ -42,10 +42,12 @@ public class HashBuildAndProbeOperator implements Operator
         {
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
+            Integer index = driverContext.getLocalPartitioningIndex();
+            assert index!=null;
             return new HashBuildAndProbeOperator(
                     operatorContext,
                     joinBridge,
-                    partitionFunction);
+                    partitionFunction,joinBridge.getHashTable(index));
         }
 
         @Override
@@ -76,7 +78,8 @@ public class HashBuildAndProbeOperator implements Operator
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
             AdaptiveJoinBridge joinBridge,
-            PartitionFunction partitionFunction
+            PartitionFunction partitionFunction,
+            HashBuildAndProbeTable table
     )
     {
         this.operatorContext = operatorContext;
@@ -86,7 +89,7 @@ public class HashBuildAndProbeOperator implements Operator
         operatorContext.setInfoSupplier(hashCollisionsCounter);
         this.joinBridge = joinBridge;
         this.partitionFunction = partitionFunction;
-        this.table = null;
+        this.table = table;
     }
 
     @Override
@@ -98,7 +101,7 @@ public class HashBuildAndProbeOperator implements Operator
     @Override
     public ListenableFuture<?> isBlocked()
     {
-        throw new UnsupportedOperationException();
+        return NOT_BLOCKED;
     }
 
     @Override
@@ -110,10 +113,6 @@ public class HashBuildAndProbeOperator implements Operator
     @Override
     public void addInput(Page page)
     {
-        if (this.table!=null) {
-            int partition = partitionFunction.getPartition(page,0); //0 is hard code here, in theory, all the positions have the same partition
-            this.table = joinBridge.getHashTable(partition);
-        }
         table.addPage(page);
     }
 
@@ -135,7 +134,7 @@ public class HashBuildAndProbeOperator implements Operator
 
     @Override
     public void finish() {
-        throw new UnsupportedOperationException();
+        table.setBuildFinished();
     }
 
     @Override public boolean isFinished() {

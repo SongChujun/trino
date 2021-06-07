@@ -70,9 +70,12 @@ public class OuterJoinResultProcessingOperator
         {
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
+            Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
+            assert localPartitioningIndex!=null;
+
 
             return new OuterJoinResultProcessingOperator(operatorContext,planNodeId,isInnerJoin,joinBridge,buildPartitionFunction,
-                    leftSymbols,rightSymbols,leftJoinSymbols,rightJoinSymbols,outputSymbols);
+                    leftSymbols,rightSymbols,leftJoinSymbols,rightJoinSymbols,outputSymbols,joinBridge.getHashTable(localPartitioningIndex) );
         }
 
         @Override
@@ -92,7 +95,6 @@ public class OuterJoinResultProcessingOperator
     private final PlanNodeId planNodeId;
     private final boolean isInnerJoin;
     private HashBuildAndProbeTable hashTable;
-    private final AdaptiveJoinBridge joinBridge;
     private final Stack<Page> pageBuffer;
     private final PartitionFunction buildPartitionFunction;
     private final List<Symbol> leftSymbols;
@@ -100,6 +102,7 @@ public class OuterJoinResultProcessingOperator
     private final List<Symbol> leftJoinSymbols;
     private final List<Symbol> rightJoinSymbols;
     private final List<Symbol> outputSymbols;
+    private final ListenableFuture<Boolean> hashBuildFinishedFuture;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -111,14 +114,14 @@ public class OuterJoinResultProcessingOperator
             List<Symbol> rightSymbols,
             List<Symbol> leftJoinSymbols,
             List<Symbol> rightJoinSymbols,
-            List<Symbol> outputSymbols
+            List<Symbol> outputSymbols,
+            HashBuildAndProbeTable table
     )
     {
         this.operatorContext = operatorContext;
         this.planNodeId = planNodeId;
         this.isInnerJoin = isInnerJoin;
-        this.joinBridge = joinBridge;
-        this.hashTable = null;
+        this.hashTable = table;
         this.buildPartitionFunction = buildPartitionFunction;
         this.leftSymbols = leftSymbols;
         this.rightSymbols = rightSymbols;
@@ -126,6 +129,8 @@ public class OuterJoinResultProcessingOperator
         this.rightJoinSymbols = rightJoinSymbols;
         this.outputSymbols = outputSymbols;
         this.pageBuffer = new Stack<>();
+        this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
+
     }
 
     @Override
@@ -137,7 +142,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public ListenableFuture<?> isBlocked()
     {
-        throw new UnsupportedOperationException();
+        return hashBuildFinishedFuture;
     }
 
     @Override
@@ -150,10 +155,6 @@ public class OuterJoinResultProcessingOperator
     public void addInput(Page page)
     {
         Page[] extractedPages = extractPages(page,isInnerJoin);
-        if (this.hashTable==null) {
-            int partition = buildPartitionFunction.getPartition(extractedPages[0],0); //0 is hard code here, in theory, all the positions have the same partition
-            this.hashTable = joinBridge.getHashTable(partition);
-        }
         Page joinResult = hashTable.joinPage(extractedPages[0]);
         if (joinResult!=null) {
             pageBuffer.add(joinResult);

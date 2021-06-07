@@ -14,6 +14,8 @@
 package io.trino.operator.join;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import io.trino.operator.PagesHashStrategy;
 import io.trino.operator.SimplePagesHashStrategy;
 import io.trino.spi.Page;
@@ -68,7 +70,6 @@ public final class HashBuildAndProbeTable implements LookupSource
         private final boolean probeOnOuterSide;
         private JoinProbe probe;
         private final JoinStatisticsCounter statisticsCounter;
-        private AtomicBoolean buildFinished;
         private JoinProcessor (List<Type> buildOutputTypes,
                 JoinProbe.JoinProbeFactory joinProbeFactory,
                 LookupJoinOperatorFactory.JoinType joinType,
@@ -90,9 +91,7 @@ public final class HashBuildAndProbeTable implements LookupSource
 
         }
         public Page joinPage(Page page) {
-            if (!checkBuildFinished()) {
-                return null;
-            }
+
 
             probe = joinProbeFactory.createJoinProbe(page);
             do {
@@ -118,6 +117,7 @@ public final class HashBuildAndProbeTable implements LookupSource
         }
 
         public void reset() {
+//            hashBuildFinishedFuture.set(true);
             this.joinPosition = -1;
             this.pageBuilder.reset();
             this.currentProbePositionProducedRow = false;
@@ -126,13 +126,8 @@ public final class HashBuildAndProbeTable implements LookupSource
             this.probeIndexBuilder.clear();
         }
 
-        public void buildFinished() {
-            buildFinished.compareAndSet(false,true);
-        }
 
-        public boolean checkBuildFinished() {
-            return  buildFinished.get();
-        }
+
 
         private boolean joinCurrentPosition(LookupSource lookupSource)
         {
@@ -192,6 +187,7 @@ public final class HashBuildAndProbeTable implements LookupSource
     //    private static final DataSize CACHE_SIZE = DataSize.of(128, KILOBYTE);
     private final List<List<Block>> channels;
     private final IntArrayList positionCounts;
+    private SettableFuture<Boolean> hashBuildFinishedFuture;
     private int pageCount;
     private int positionCount;
     private final boolean eagerCompact;
@@ -276,9 +272,14 @@ public final class HashBuildAndProbeTable implements LookupSource
         Arrays.fill(key, -1);
         positionToHashes = new byte[hashSize];
         this.statisticsCounter = new JoinStatisticsCounter(joinType);
+        this.hashBuildFinishedFuture = SettableFuture.create();
         joinProcessor = new JoinProcessor(buildOutputTypes,joinProbeFactory,joinType,outputSingleMatch,statisticsCounter);
 
 
+    }
+
+    public ListenableFuture<Boolean> getBuildFinishedFuture() {
+        return hashBuildFinishedFuture;
     }
 
     private List<Integer> rangeList(int endExclusive)
@@ -374,6 +375,11 @@ public final class HashBuildAndProbeTable implements LookupSource
         this.expectedHashCollisions = 0;
         Arrays.fill(positionToHashes,(byte)0);
     }
+
+    public void setBuildFinished() {
+        hashBuildFinishedFuture.set(true);
+    }
+
     @Override
     public final int getChannelCount()
     {

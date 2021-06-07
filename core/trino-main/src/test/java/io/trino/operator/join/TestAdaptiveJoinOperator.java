@@ -16,25 +16,41 @@ package io.trino.operator.join;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
+import io.airlift.units.DataSize;
 import io.trino.RowPagesBuilder;
+import io.trino.execution.Lifespan;
 import io.trino.execution.NodeTaskMap;
 import io.trino.execution.scheduler.NodeScheduler;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
 import io.trino.execution.scheduler.UniformNodeSelectorFactory;
 import io.trino.metadata.InMemoryNodeManager;
+import io.trino.operator.Driver;
+import io.trino.operator.DriverContext;
 import io.trino.operator.HashGenerator;
 import io.trino.operator.InterpretedHashGenerator;
+import io.trino.operator.Operator;
 import io.trino.operator.OperatorFactories;
 import io.trino.operator.OperatorFactory;
+import io.trino.operator.PagesIndex;
 import io.trino.operator.PartitionFunction;
+import io.trino.operator.PipelineContext;
 import io.trino.operator.PrecomputedHashGenerator;
 import io.trino.operator.TaskContext;
 import io.trino.operator.TrinoOperatorFactories;
+import io.trino.operator.ValuesOperator;
+import io.trino.operator.exchange.LocalExchange;
+import io.trino.operator.exchange.LocalExchangeSinkOperator;
+import io.trino.operator.exchange.LocalExchangeSourceOperator;
 import io.trino.operator.exchange.LocalPartitionGenerator;
 import io.trino.spi.Page;
+import io.trino.spi.TrinoException;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
+import io.trino.spiller.SingleStreamSpillerFactory;
+import io.trino.sql.gen.JoinFilterFunctionCompiler;
 import io.trino.sql.planner.NodePartitioningManager;
+import io.trino.sql.planner.Symbol;
+import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.TestingTaskContext;
 import io.trino.type.BlockTypeOperators;
@@ -49,9 +65,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Function;
+import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -64,8 +83,11 @@ import static io.airlift.testing.Assertions.assertEqualsIgnoreOrder;
 import static io.trino.RowPagesBuilder.rowPagesBuilder;
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.operator.OperatorAssertion.assertOperatorEquals;
+import static io.trino.operator.PipelineExecutionStrategy.UNGROUPED_EXECUTION;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
+import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_PASSTHROUGH_DISTRIBUTION;
 import static io.trino.testing.assertions.Assert.assertEquals;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -147,44 +169,6 @@ public class TestAdaptiveJoinOperator
     }
 
     @Test(dataProvider = "hashJoinTestValues")
-    public void testInnerJoin(boolean parallelBuild, boolean probeHashEnabled, boolean buildHashEnabled)
-    {
-        TaskContext taskContext = createTaskContext();
-
-        // build factory
-        RowPagesBuilder buildPages = rowPagesBuilder(buildHashEnabled, Ints.asList(0), ImmutableList.of(VARCHAR, BIGINT, BIGINT))
-                .addSequencePage(10, 20, 30, 40);
-//        BuildSideSetup buildSideSetup = setupBuildSide(parallelBuild, taskContext, Ints.asList(0), buildPages, Optional.empty(), false, SINGLE_STREAM_SPILLER_FACTORY);
-//        JoinBridgeManager<PartitionedLookupSourceFactory> lookupSourceFactory = buildSideSetup.getLookupSourceFactoryManager();
-
-        // probe factory
-        RowPagesBuilder probePages = rowPagesBuilder(probeHashEnabled, Ints.asList(0), ImmutableList.of(VARCHAR, BIGINT, BIGINT));
-        List<Page> probeInput = probePages
-                .addSequencePage(1000, 0, 1000, 2000)
-                .build();
-//        OperatorFactory joinOperatorFactory = innerJoinOperatorFactory(lookupSourceFactory, probePages, PARTITIONING_SPILLER_FACTORY);
-
-        // build drivers and operators
-//        instantiateBuildDrivers(buildSideSetup, taskContext);
-//        buildLookupSource(buildSideSetup);
-
-        // expected
-        MaterializedResult expected = MaterializedResult.resultBuilder(taskContext.getSession(), concat(probePages.getTypesWithoutHash(), buildPages.getTypesWithoutHash()))
-                .row("20", 1020L, 2020L, "20", 30L, 40L)
-                .row("21", 1021L, 2021L, "21", 31L, 41L)
-                .row("22", 1022L, 2022L, "22", 32L, 42L)
-                .row("23", 1023L, 2023L, "23", 33L, 43L)
-                .row("24", 1024L, 2024L, "24", 34L, 44L)
-                .row("25", 1025L, 2025L, "25", 35L, 45L)
-                .row("26", 1026L, 2026L, "26", 36L, 46L)
-                .row("27", 1027L, 2027L, "27", 37L, 47L)
-                .row("28", 1028L, 2028L, "28", 38L, 48L)
-                .row("29", 1029L, 2029L, "29", 39L, 49L)
-                .build();
-
-        assertOperatorEquals(joinOperatorFactory, taskContext.addPipelineContext(0, true, true, false).addDriverContext(), probeInput, expected, true, getHashChannels(probePages, buildPages));
-    }
-
     public void testTableBasic(boolean parallelBuild, boolean probeHashEnabled, boolean buildHashEnabled)
     {
         TaskContext taskContext = createTaskContext();
@@ -200,20 +184,6 @@ public class TestAdaptiveJoinOperator
 
         int partitionCount = parallelBuild ? PARTITION_COUNT : 1;
 
-        AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(
-                types,hashChannel,joinChannels,buildOutputTypes,buildOutputChannels, TYPE_OPERATOR_FACTORY,length,LookupJoinOperatorFactory.JoinType.INNER,
-                true,false,partitionCount);
-
-        PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(hashChannel,joinChannels,types,partitionCount);
-
-        OperatorFactory hashBuildOperatorFactory = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
-            0,0,buildPartitionFunction,joinBridge)
-        )
-
-        OperatorFactory outerJoinProcessingOperatorFactory = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                0,0,joinBridge,true,buildPartitionFunction,
-        )
-
 
         // build factory
         RowPagesBuilder buildPages = rowPagesBuilder(buildHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
@@ -223,6 +193,45 @@ public class TestAdaptiveJoinOperator
 
         List<Page> buildInput = buildPages.build();
 
+        AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(
+                types,hashChannel,joinChannels,buildOutputTypes,buildOutputChannels, TYPE_OPERATOR_FACTORY,length,LookupJoinOperatorFactory.JoinType.INNER,
+                true,false,partitionCount);
+
+        PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(hashChannel,joinChannels,types,partitionCount);
+
+        HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory hashBuildOperatorFactory = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+            0,new PlanNodeId("0"),buildPartitionFunction,joinBridge);
+
+        BuildSideSetup buildSideSetup = setupBuildSide(parallelBuild,taskContext,joinChannels,buildPages,hashBuildOperatorFactory);
+
+
+
+        List<Symbol> leftSymbols = ImmutableList.<Symbol>builder()
+                .add(new Symbol("L1"))
+                .add(new Symbol("L2"))
+                .build();
+
+        List<Symbol> rightSymbols = ImmutableList.<Symbol>builder()
+                .add(new Symbol("R1"))
+                .add(new Symbol("R2"))
+                .build();
+
+        List<Symbol> leftJoinSymbols = ImmutableList.<Symbol>builder()
+                .add(new Symbol("L1"))
+                .build();
+
+        List<Symbol> rightJoinSymbols = ImmutableList.<Symbol>builder()
+                .add(new Symbol("R1"))
+                .build();
+
+        List<Symbol> outputSymbols = ImmutableList.<Symbol>builder()
+                .addAll(leftSymbols).addAll(rightSymbols).build();
+
+        OperatorFactory outerJoinProcessingOperatorFactory = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
+                0,new PlanNodeId("0"),joinBridge,true,buildPartitionFunction,leftSymbols,rightSymbols,
+                leftJoinSymbols,rightJoinSymbols,outputSymbols
+        );
+
         // probe factory
         RowPagesBuilder probePages = rowPagesBuilder(probeHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
                 .addSequencePage(10, 25, 1000)
@@ -230,6 +239,39 @@ public class TestAdaptiveJoinOperator
 
 
         List<Page> probeInput = probePages.build();
+
+        BuildSideSetup outerSideSetup = setupBuildSide(parallelBuild,taskContext,Ints.asList(2,3),probePages,outerJoinProcessingOperatorFactory);
+
+
+
+        LocalExchange.LocalExchangeFactory localExchangeFactory = new LocalExchange.LocalExchangeFactory(
+                nodePartitioningManager,
+                taskContext.getSession(),
+                FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
+                partitionCount,
+                types,
+                null,
+                Optional.empty(),
+                UNGROUPED_EXECUTION,
+                DataSize.of(32, DataSize.Unit.MEGABYTE),
+                TYPE_OPERATOR_FACTORY);
+
+        instantiateBuildDrivers(buildSideSetup, taskContext,localExchangeFactory);
+        instantiateBuildDrivers(outerSideSetup, taskContext,localExchangeFactory);
+
+        runDriver(buildSideSetup);
+        runDriver(outerSideSetup);
+
+        OperatorFactory sourceOperatorFactory = new LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory(0, new PlanNodeId("0"), localExchangeFactory);
+
+        instantiateMergeDrivers(taskContext,sourceOperatorFactory);
+
+
+
+
+
+
+
 
         MaterializedResult expected = MaterializedResult.resultBuilder(taskContext.getSession(), concat(probePages.getTypesWithoutHash(), buildPages.getTypesWithoutHash()))
                 .row(25L, 1000L, 25L, 35L)
@@ -247,16 +289,16 @@ public class TestAdaptiveJoinOperator
                 .row(37L, 1002L, 37L, 47L)
                 .build();
 
-        List<Page> actual = new ArrayList<>();
-        for (Page page: buildInput) {
-            table.addPage(page);
-        }
-        for (Page page:probeInput) {
-            actual.add(table.joinPage(page));
-        }
-        assertPagesEqualIgnoreOrder(taskContext.getSession(),actual,expected,false,Optional.empty());
-
-        table.reset();
+//        List<Page> actual = new ArrayList<>();
+//        for (Page page: buildInput) {
+//            table.addPage(page);
+//        }
+//        for (Page page:probeInput) {
+//            actual.add(table.joinPage(page));
+//        }
+//        assertPagesEqualIgnoreOrder(taskContext.getSession(),actual,expected,false,Optional.empty());
+//
+//        table.reset();
 
     }
 
@@ -272,7 +314,7 @@ public class TestAdaptiveJoinOperator
             List<Type> hashTypes = joinChannels.stream()
                     .map(types::get)
                     .collect(toImmutableList());
-            HashGenerator = new InterpretedHashGenerator(hashTypes, joinChannels, blockTypeOperators);
+            HashGenerator = new InterpretedHashGenerator(hashTypes, joinChannels, TYPE_OPERATOR_FACTORY);
         }
         return new LocalPartitionGenerator(HashGenerator,partitionCount);
 
@@ -286,5 +328,172 @@ public class TestAdaptiveJoinOperator
     private static <T> List<T> concat(List<T> initialElements, List<T> moreElements)
     {
         return ImmutableList.copyOf(Iterables.concat(initialElements, moreElements));
+    }
+
+    private TestAdaptiveJoinOperator.BuildSideSetup setupBuildSide(
+            boolean parallelBuild,
+            TaskContext taskContext,
+            List<Integer> hashChannels,
+            RowPagesBuilder buildPages,
+            OperatorFactory buildOperatorFactory
+            )
+    {
+
+        int partitionCount = parallelBuild ? PARTITION_COUNT : 1;
+        LocalExchange.LocalExchangeFactory localExchangeFactory = new LocalExchange.LocalExchangeFactory(
+                nodePartitioningManager,
+                taskContext.getSession(),
+                FIXED_HASH_DISTRIBUTION,
+                partitionCount,
+                buildPages.getTypes(),
+                hashChannels,
+                buildPages.getHashChannel(),
+                UNGROUPED_EXECUTION,
+                DataSize.of(32, DataSize.Unit.MEGABYTE),
+                TYPE_OPERATOR_FACTORY);
+        LocalExchange.LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.newSinkFactoryId();
+        localExchangeFactory.noMoreSinkFactories();
+
+        // collect input data into the partitioned exchange
+        DriverContext collectDriverContext = taskContext.addPipelineContext(0, true, true, false).addDriverContext();
+        ValuesOperator.ValuesOperatorFactory valuesOperatorFactory = new ValuesOperator.ValuesOperatorFactory(0, new PlanNodeId("values"), buildPages.build());
+        LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory sinkOperatorFactory = new LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory(localExchangeFactory, 1, new PlanNodeId("sink"), localExchangeSinkFactoryId, Function.identity());
+        Driver sourceDriver = Driver.createDriver(collectDriverContext,
+                valuesOperatorFactory.createOperator(collectDriverContext),
+                sinkOperatorFactory.createOperator(collectDriverContext));
+        valuesOperatorFactory.noMoreOperators();
+        sinkOperatorFactory.noMoreOperators();
+
+        while (!sourceDriver.isFinished()) {
+            sourceDriver.process();
+        }
+        LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory sourceOperatorFactory = new LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory(0, new PlanNodeId("source"), localExchangeFactory);
+        return new TestAdaptiveJoinOperator.BuildSideSetup(buildOperatorFactory, sourceOperatorFactory, partitionCount);
+    }
+
+    private static class BuildSideSetup
+    {
+        private final OperatorFactory buildOperatorFactory;
+        private final LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory buildSideSourceOperatorFactory;
+        private final int partitionCount;
+        private List<Driver> buildDrivers;
+        private List<Operator> buildOperators;
+
+        BuildSideSetup(OperatorFactory buildOperatorFactory, LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory buildSideSourceOperatorFactory, int partitionCount)
+        {
+            this.buildOperatorFactory = requireNonNull(buildOperatorFactory, "buildOperatorFactory is null");
+            this.buildSideSourceOperatorFactory = buildSideSourceOperatorFactory;
+            this.partitionCount = partitionCount;
+        }
+
+        void setDriversAndOperators(List<Driver> buildDrivers, List<Operator> buildOperators)
+        {
+            checkArgument(buildDrivers.size() == buildOperators.size());
+            this.buildDrivers = ImmutableList.copyOf(buildDrivers);
+            this.buildOperators = ImmutableList.copyOf(buildOperators);
+        }
+
+
+        OperatorFactory getBuildOperatorFactory()
+        {
+            return buildOperatorFactory;
+        }
+
+        public LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory getBuildSideSourceOperatorFactory()
+        {
+            return buildSideSourceOperatorFactory;
+        }
+
+        public int getPartitionCount()
+        {
+            return partitionCount;
+        }
+
+        List<Driver> getBuildDrivers()
+        {
+            checkState(buildDrivers != null, "buildDrivers is not initialized yet");
+            return buildDrivers;
+        }
+
+        List<Operator> getBuildOperators()
+        {
+            checkState(buildOperators != null, "buildDrivers is not initialized yet");
+            return buildOperators;
+        }
+    }
+
+    private static List<Integer> rangeList(int endExclusive)
+    {
+        return IntStream.range(0, endExclusive)
+                .boxed()
+                .collect(toImmutableList());
+    }
+
+    private void instantiateBuildDrivers(BuildSideSetup buildSideSetup, TaskContext taskContext,LocalExchange.LocalExchangeFactory localExchangeFactory)
+    {
+
+        OperatorFactory sinkOperatorFactory = new LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory(
+                localExchangeFactory,
+                0,
+                new PlanNodeId("0"),
+                localExchangeFactory.newSinkFactoryId(),
+                Function.identity());
+
+
+        PipelineContext buildPipeline = taskContext.addPipelineContext(1, true, true, false);
+        List<Driver> buildDrivers = new ArrayList<>();
+        List<Operator> buildOperators = new ArrayList<>();
+        for (int i = 0; i < buildSideSetup.getPartitionCount(); i++) {
+            DriverContext buildDriverContext = buildPipeline.addDriverContext();
+            Operator buildOperator = buildSideSetup.getBuildOperatorFactory().createOperator(buildDriverContext);
+            Operator sinkOperator = sinkOperatorFactory.createOperator(buildDriverContext);
+            Driver driver = Driver.createDriver(
+                    buildDriverContext,
+                    buildSideSetup.getBuildSideSourceOperatorFactory().createOperator(buildDriverContext),
+                    buildOperator,sinkOperator);
+            buildDrivers.add(driver);
+            buildOperators.add(buildOperator);
+        }
+
+        buildSideSetup.setDriversAndOperators(buildDrivers, buildOperators);
+    }
+
+    private void instantiateMergeDrivers( TaskContext taskContext,OperatorFactory sourceOperatorFactory) {
+
+        PipelineContext buildPipeline = taskContext.addPipelineContext(1, true, true, false);
+        DriverContext buildDriverContext = buildPipeline.addDriverContext();
+        Operator sourceOperator = sourceOperatorFactory.createOperator(buildDriverContext);
+        Driver driver = Driver.createDriver(
+                buildDriverContext,
+                sourceOperator);
+
+        runDriverInThread(executor, driver);
+
+    }
+
+
+    private void runDriver(BuildSideSetup buildSideSetup)
+    {
+        requireNonNull(buildSideSetup, "buildSideSetup is null");
+        List<Driver> buildDrivers = buildSideSetup.getBuildDrivers();
+        for (Driver buildDriver : buildDrivers) {
+            runDriverInThread(executor, buildDriver);
+        }
+    }
+
+    private static void runDriverInThread(ExecutorService executor, Driver driver)
+    {
+        executor.execute(() -> {
+            if (!driver.isFinished()) {
+                try {
+                    driver.process();
+                }
+                catch (TrinoException e) {
+                    driver.getDriverContext().failed(e);
+                    return;
+                }
+                runDriverInThread(executor, driver);
+            }
+        });
     }
 }

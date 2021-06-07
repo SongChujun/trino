@@ -79,6 +79,8 @@ public class DriverContext
     private final List<OperatorContext> operatorContexts = new CopyOnWriteArrayList<>();
     private final Lifespan lifespan;
 
+    private Integer localPartitioningIndex;
+
     public DriverContext(
             PipelineContext pipelineContext,
             Executor notificationExecutor,
@@ -92,6 +94,15 @@ public class DriverContext
         this.driverMemoryContext = requireNonNull(driverMemoryContext, "driverMemoryContext is null");
         this.lifespan = requireNonNull(lifespan, "lifespan is null");
         this.yieldSignal = new DriverYieldSignal();
+        this.localPartitioningIndex = null;
+    }
+
+    public void setLocalPartitioningIndex(int index) {
+        this.localPartitioningIndex = index;
+    }
+
+    public Integer getLocalPartitioningIndex() {
+        return this.localPartitioningIndex;
     }
 
     public TaskId getTaskId()

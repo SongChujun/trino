@@ -111,7 +111,7 @@ public class LocalExchange
 
         ImmutableList.Builder<LocalExchangeSource> sources = ImmutableList.builder();
         for (int i = 0; i < bufferCount; i++) {
-            sources.add(new LocalExchangeSource(source -> checkAllSourcesFinished()));
+            sources.add(new LocalExchangeSource(source -> checkAllSourcesFinished(),i));
         }
         this.sources = sources.build();
 
