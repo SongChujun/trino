@@ -32,6 +32,7 @@ import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
@@ -1027,6 +1028,16 @@ public class UnaliasSymbolReferences
                             newDynamicFilters,
                             node.getReorderJoinStatsAndCost()),
                     outputMapping);
+        }
+
+
+
+        @Override
+        public PlanAndMappings visitAdaptiveJoin(AdaptiveJoinNode node, UnaliasContext context)
+        {
+            //not implemented here
+            return new PlanAndMappings(
+                    node, new HashMap<>());
         }
 
         @Override

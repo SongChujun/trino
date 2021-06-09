@@ -29,6 +29,7 @@ import io.trino.sql.planner.Partitioning.ArgumentBinding;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
@@ -230,7 +231,30 @@ public final class StreamPropertyDerivations
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
 
+        @Override
+        public StreamProperties visitAdaptiveJoin(AdaptiveJoinNode node, List<StreamProperties> inputProperties)
+        {
+            StreamProperties buildProperties = inputProperties.get(0);
+            boolean unordered = spillPossible(session, node);
+
+            switch (node.getType()) {
+                case INNER:
+                    return buildProperties
+                            .translate(column -> PropertyDerivations.filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column))
+                            .unordered(unordered);
+                case LEFT:
+                case RIGHT:
+                case FULL:
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
         private static boolean spillPossible(Session session, JoinNode node)
+        {
+            return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
+        }
+
+        private static boolean spillPossible(Session session, AdaptiveJoinNode node)
         {
             return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
         }

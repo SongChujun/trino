@@ -22,7 +22,7 @@ public class HashBuildAndProbeOperator implements Operator
         private final int operatorId;
         private final PlanNodeId planNodeId;
         private boolean closed;
-        private AdaptiveJoinBridge joinBridge;
+        private final AdaptiveJoinBridge joinBridge;
         private final PartitionFunction partitionFunction;
 
         public HashBuildAndProbeOperatorFactory(

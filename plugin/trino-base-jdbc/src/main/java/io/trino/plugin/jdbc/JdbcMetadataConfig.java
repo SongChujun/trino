@@ -29,6 +29,7 @@ public class JdbcMetadataConfig
      * in terms of performance and money due to an increased network traffic.
      */
     private boolean joinPushdownEnabled;
+    private boolean hybridJoinEnabled;
     private boolean aggregationPushdownEnabled = true;
 
     private boolean topNPushdownEnabled = true;
@@ -58,6 +59,11 @@ public class JdbcMetadataConfig
         return joinPushdownEnabled;
     }
 
+    public boolean isHybridJoinEnabled()
+    {
+        return hybridJoinEnabled;
+    }
+
     @LegacyConfig("experimental.join-pushdown.enabled")
     @Config("join-pushdown.enabled")
     @ConfigDescription("Enable join pushdown")
@@ -66,6 +72,17 @@ public class JdbcMetadataConfig
         this.joinPushdownEnabled = joinPushdownEnabled;
         return this;
     }
+
+    @LegacyConfig("experimental.hybird-join.enabled")
+    @Config("hybird-join.enabled")
+    @ConfigDescription("Enable hybrid join")
+    public JdbcMetadataConfig setHybridJoinEnabled(boolean hybridJoinEnabled)
+    {
+        this.hybridJoinEnabled = hybridJoinEnabled;
+        return this;
+    }
+
+
 
     public boolean isAggregationPushdownEnabled()
     {

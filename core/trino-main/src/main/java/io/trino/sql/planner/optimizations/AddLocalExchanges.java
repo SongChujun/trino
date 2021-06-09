@@ -32,6 +32,7 @@ import io.trino.sql.planner.SystemPartitioningHandle;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.optimizations.StreamPropertyDerivations.StreamProperties;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.CorrelatedJoinNode;
@@ -736,6 +737,44 @@ public class AddLocalExchanges
 
             return rebaseAndDeriveProperties(node, ImmutableList.of(probe, build));
         }
+
+        @Override
+        public PlanWithProperties visitAdaptiveJoin(AdaptiveJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            List<Symbol> outerHashSymbols = ImmutableList.<Symbol>builder().addAll(Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight))
+                    .addAll(Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft)).build();
+            StreamPreferredProperties outerPreference;
+            if (getTaskConcurrency(session) > 1) {
+                outerPreference = exactlyPartitionedOn(outerHashSymbols);
+            }
+            else {
+                outerPreference = singleStream();
+            }
+
+            PlanWithProperties outer = planAndEnforce(
+                    node.getOuter(),
+                    outerPreference,
+                    outerPreference);
+
+            if (isSpillEnabled(session)) {
+                throw new IllegalStateException("spill unspoorted yer");
+            }
+
+            // this build consumes the input completely, so we do not pass through parent preferences
+            List<Symbol> buildHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
+            StreamPreferredProperties buildPreference;
+            if (getTaskConcurrency(session) > 1) {
+                buildPreference = exactlyPartitionedOn(buildHashSymbols);
+            }
+            else {
+                buildPreference = singleStream();
+            }
+            PlanWithProperties build = planAndEnforce(node.getBuild(), buildPreference, buildPreference);
+
+            return rebaseAndDeriveProperties(node, ImmutableList.of(build,outer));
+        }
+
+
 
         @Override
         public PlanWithProperties visitSemiJoin(SemiJoinNode node, StreamPreferredProperties parentPreferences)

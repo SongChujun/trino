@@ -293,7 +293,11 @@ public class AdaptiveJoinNode
     @Override
     public AdaptiveJoinNode replaceChildren(List<PlanNode> newChildren)
     {
-        throw new UnsupportedOperationException();
+        checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
+        return new AdaptiveJoinNode(getId(),type,newChildren.get(0),newChildren.get(1),criteria,
+                buildOutputSymbols,probeOutputSymbols,outerLeftSymbols,outerRightSymbols,maySkipOutputDuplicates,
+                filter,buildHashSymbol,outerHashSymbol,distributionType,spillable,dynamicFilters,reorderJoinStatsAndCost
+                );
     }
 
     public AdaptiveJoinNode withDistributionType(JoinNode.DistributionType distributionType)

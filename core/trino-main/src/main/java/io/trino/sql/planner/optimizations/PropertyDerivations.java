@@ -39,6 +39,7 @@ import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.optimizations.ActualProperties.Global;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
@@ -521,6 +522,39 @@ public final class PropertyDerivations
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
+
+        @Override
+        public ActualProperties visitAdaptiveJoin(AdaptiveJoinNode node, List<ActualProperties> inputProperties)
+        {
+            ActualProperties buildProperties = inputProperties.get(0);
+            ActualProperties outerProperties = inputProperties.get(1);
+
+            boolean unordered = spillPossible(session, node.getType());
+
+            switch (node.getType()) {
+                case INNER:
+                    buildProperties = buildProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+                    outerProperties = outerProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+
+                    Map<Symbol, NullableValue> constants = new HashMap<>();
+                    constants.putAll(outerProperties.getConstants());
+
+                    if (node.isCrossJoin()) {
+                        throw new IllegalStateException("cross join not supported for adaptive join");
+                    }
+
+                    return ActualProperties.builderFrom(buildProperties)
+                            .constants(constants)
+                            .unordered(unordered)
+                            .build();
+                case LEFT:
+                case RIGHT:
+                case FULL:
+
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
 
         @Override
         public ActualProperties visitSemiJoin(SemiJoinNode node, List<ActualProperties> inputProperties)

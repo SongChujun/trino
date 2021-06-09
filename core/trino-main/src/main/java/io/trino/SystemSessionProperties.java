@@ -122,6 +122,7 @@ public final class SystemSessionProperties
     public static final String UNWRAP_CASTS = "unwrap_casts";
     public static final String SKIP_REDUNDANT_SORT = "skip_redundant_sort";
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
+    public static final String USE_HYBRID_JOIN = "use_hybrid_join";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
     public static final String LATE_MATERIALIZATION = "late_materialization";
     public static final String ENABLE_DYNAMIC_FILTERING = "enable_dynamic_filtering";
@@ -553,6 +554,12 @@ public final class SystemSessionProperties
                         // This is a diagnostic property
                         true,
                         true),
+                booleanProperty(
+                        USE_HYBRID_JOIN,
+                        "use hybrid join",
+                        // This is a diagnostic property
+                        false,
+                        false),
                 booleanProperty(
                         PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES,
                         "Use table properties in predicate pushdown",
@@ -1058,6 +1065,13 @@ public final class SystemSessionProperties
     {
         return session.getSystemProperty(ALLOW_PUSHDOWN_INTO_CONNECTORS, Boolean.class);
     }
+
+    public static boolean isHybridEnabled(Session session)
+    {
+        return session.getSystemProperty(USE_HYBRID_JOIN, Boolean.class);
+    }
+
+
 
     public static boolean isPredicatePushdownUseTableProperties(Session session)
     {

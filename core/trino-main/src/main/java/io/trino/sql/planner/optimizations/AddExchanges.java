@@ -38,6 +38,7 @@ import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.rule.PushPredicateIntoTableScan;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.Assignments;
@@ -735,6 +736,26 @@ public class AddExchanges
             }
         }
 
+        @Override
+        public PlanWithProperties visitAdaptiveJoin(AdaptiveJoinNode node, PreferredProperties preferredProperties)
+        {
+            List<Symbol> leftSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getLeft)
+                    .collect(toImmutableList());
+            List<Symbol> rightSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getRight)
+                    .collect(toImmutableList());
+
+            JoinNode.DistributionType distributionType = node.getDistributionType().orElseThrow(() -> new IllegalArgumentException("distributionType not yet set"));
+
+            if (distributionType == JoinNode.DistributionType.REPLICATED) {
+                throw new IllegalStateException("REPLICATED Adaptive Join is not supported");
+            }
+            else {
+                return planPartitionedAdaptiveJoin(node, leftSymbols, rightSymbols);
+            }
+        }
+
         private PlanWithProperties planPartitionedJoin(JoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols)
         {
             return planPartitionedJoin(node, leftSymbols, rightSymbols, node.getLeft().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(leftSymbols))));
@@ -788,6 +809,49 @@ public class AddExchanges
             return buildJoin(node, left, right, JoinNode.DistributionType.PARTITIONED);
         }
 
+        private PlanWithProperties planPartitionedAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols)
+        {
+            return planPartitionedAdaptiveJoin(node, leftSymbols, rightSymbols, node.getBuild().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(rightSymbols))));
+        }
+
+        private PlanWithProperties planPartitionedAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, PlanWithProperties build)
+        {
+            SetMultimap<Symbol, Symbol> rightToLeft = createMapping(rightSymbols, leftSymbols);
+            SetMultimap<Symbol, Symbol> leftToRight = createMapping(leftSymbols, rightSymbols);
+
+            PlanWithProperties outer;
+
+            if (build.getProperties().isNodePartitionedOn(leftSymbols) && !build.getProperties().isSingleNode()) {
+                throw new IllegalStateException("Unsupported yet");
+            }
+            else {
+                outer = node.getOuter().accept(this, PreferredProperties.partitioned(ImmutableSet.<Symbol>builder().addAll(rightSymbols).addAll(leftSymbols).build()));
+
+                if (outer.getProperties().isNodePartitionedOn(rightSymbols) && !outer.getProperties().isSingleNode()) {
+                    throw new IllegalStateException("Unsupported yet");
+                }
+                else {
+                    build = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, build.getNode(), rightSymbols, Optional.empty()),
+                            build.getProperties());
+                    outer = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, outer.getNode(), ImmutableList.<Symbol>builder().addAll(rightSymbols).addAll(leftSymbols).build(), Optional.empty()),
+                            outer.getProperties());
+                }
+            }
+
+//            verify(build.getProperties().isCompatibleTablePartitioningWith(outer.getProperties(), leftToRight::get, metadata, session));
+
+            // if colocated joins are disabled, force redistribute when using a custom partitioning
+            if (!isColocatedJoinEnabled(session) && hasMultipleSources(outer.getNode(), build.getNode())) {
+                throw new IllegalStateException("Unsupported yet");
+            }
+
+            return buildAdaptiveJoin(node, build, outer, JoinNode.DistributionType.PARTITIONED);
+        }
+
+
+
         private PlanWithProperties planReplicatedJoin(JoinNode node, PlanWithProperties left)
         {
             // Broadcast Join
@@ -830,6 +894,30 @@ public class AddExchanges
                     node.getReorderJoinStatsAndCost());
 
             return new PlanWithProperties(result, deriveProperties(result, ImmutableList.of(newLeft.getProperties(), newRight.getProperties())));
+        }
+
+        private PlanWithProperties buildAdaptiveJoin(AdaptiveJoinNode node, PlanWithProperties newBuild, PlanWithProperties newOuter, JoinNode.DistributionType newDistributionType)
+        {
+            AdaptiveJoinNode result = new AdaptiveJoinNode(
+                    node.getId(),
+                    node.getType(),
+                    newBuild.getNode(),
+                    newOuter.getNode(),
+                    node.getCriteria(),
+                    node.getBuildOutputSymbols(),
+                    node.getProbeOutputSymbols(),
+                    node.getOuterLeftSymbols(),
+                    node.getOuterRightSymbols(),
+                    node.isMaySkipOutputDuplicates(),
+                    node.getFilter(),
+                    node.getBuildHashSymbol(),
+                    node.getOuterHashSymbol(),
+                    Optional.of(newDistributionType),
+                    node.isSpillable(),
+                    node.getDynamicFilters(),
+                    node.getReorderJoinStatsAndCost());
+
+            return new PlanWithProperties(result, deriveProperties(result, ImmutableList.of(newBuild.getProperties(), newOuter.getProperties())));
         }
 
         @Override

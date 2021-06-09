@@ -53,7 +53,7 @@ public class LocalExchangeSourceOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, LocalExchangeSourceOperator.class.getSimpleName());
             LocalExchangeSource localExchangeSource = inMemoryExchange.getNextSource();
             driverContext.setLocalPartitioningIndex(localExchangeSource.getIndex());
-            return new LocalExchangeSourceOperator(operatorContext, inMemoryExchange.getNextSource());
+            return new LocalExchangeSourceOperator(operatorContext, localExchangeSource);
         }
 
         @Override

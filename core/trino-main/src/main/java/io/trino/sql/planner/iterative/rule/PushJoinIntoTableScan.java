@@ -36,6 +36,7 @@ import io.trino.sql.ExpressionUtils;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.Rule;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.Patterns;
@@ -51,11 +52,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.SystemSessionProperties.isAllowPushdownIntoConnectors;
+import static io.trino.SystemSessionProperties.isHybridEnabled;
 import static io.trino.matching.Capture.newCapture;
 import static io.trino.spi.predicate.Domain.onlyNull;
 import static io.trino.sql.ExpressionUtils.and;
@@ -184,6 +187,41 @@ public class PushJoinIntoTableScan
                         .putAll(leftConstraint.getDomains().orElseThrow())
                         .putAll(rightConstraint.getDomains().orElseThrow())
                         .build());
+        // may need some extra condition here
+        if (isHybridEnabled(context.getSession())) {
+            PlanNode build = right;
+            PlanNode outer = new TableScanNode(
+                    joinNode.getId(),
+                    handle,
+                    ImmutableList.copyOf(assignments.keySet()),
+                    assignments,
+                    newEnforcedConstraint,
+                    deriveTableStatisticsForPushdown(context.getStatsProvider(), context.getSession(), joinApplicationResult.get().isPrecalculateStatistics(), joinNode),
+                    false,
+                    Optional.empty());
+            return Result.ofPlanNode(
+                    new AdaptiveJoinNode(
+                            context.getIdAllocator().getNextId(),
+                            joinNode.getType(),
+                            build,
+                            outer,
+                            joinNode.getCriteria(),
+                            joinNode.getRightOutputSymbols(),
+                            joinNode.getLeftOutputSymbols(),
+                            // may hard code here!
+                            left.getAssignments().keySet().stream().collect(toImmutableList()),
+                            right.getAssignments().keySet().stream().collect(toImmutableList()),
+                            joinNode.isMaySkipOutputDuplicates(),
+                            joinNode.getFilter(),
+                            Optional.empty(),
+                            Optional.empty(),
+                            joinNode.getDistributionType(),
+                            joinNode.isSpillable(),
+                            joinNode.getDynamicFilters(),
+                            joinNode.getReorderJoinStatsAndCost()
+                    ));
+        }
+
 
         return Result.ofPlanNode(
                 new ProjectNode(
