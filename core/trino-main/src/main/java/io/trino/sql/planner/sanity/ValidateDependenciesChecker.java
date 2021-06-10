@@ -24,6 +24,7 @@ import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
 import io.trino.sql.planner.TypeAnalyzer;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.ApplyNode;
@@ -442,6 +443,27 @@ public final class ValidateDependenciesChecker
                 checkDependencies(node.getOutputSymbols(), inputs, "Cross join output symbols (%s) must contain all of the source symbols (%s)", node.getOutputSymbols(), inputs);
             }
 
+            return null;
+        }
+
+        @Override
+        public Void visitAdaptiveJoin(AdaptiveJoinNode node, Set<Symbol> boundSymbols)
+        {
+            node.getBuild().accept(this, boundSymbols);
+            node.getOuter().accept(this, boundSymbols);
+
+            Set<Symbol> buildInputs = createInputs(node.getBuild(), boundSymbols);
+            Set<Symbol> outerInputs = createInputs(node.getOuter(), boundSymbols);
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                checkArgument(buildInputs.contains(clause.getRight()), "Symbol from join clause (%s) not in left source (%s)", clause.getLeft(), node.getBuild().getOutputSymbols());
+                checkArgument(outerInputs.contains(clause.getLeft()), "Symbol from join clause (%s) not in right source (%s)", clause.getRight(), node.getOuter().getOutputSymbols());
+                checkArgument(outerInputs.contains(clause.getRight()), "Symbol from join clause (%s) not in right source (%s)", clause.getRight(), node.getOuter().getOutputSymbols());
+
+            }
+
+            if (node.getFilter().isPresent()||node.isCrossJoin()) {
+                throw new IllegalStateException("filter is not supported");
+            }
             return null;
         }
 

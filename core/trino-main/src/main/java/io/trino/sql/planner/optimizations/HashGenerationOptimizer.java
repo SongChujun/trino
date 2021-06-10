@@ -36,6 +36,7 @@ import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.TypeProvider;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.ApplyNode;
 import io.trino.sql.planner.plan.Assignments;
@@ -75,6 +76,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -344,6 +347,50 @@ public class HashGenerationOptimizer
             return buildJoinNodeWithPreferredHashes(node, left, right, allHashSymbols, parentPreference, Optional.of(leftHashSymbol), Optional.of(rightHashSymbol));
         }
 
+        @Override
+        public PlanWithProperties visitAdaptiveJoin(AdaptiveJoinNode node, HashComputationSet parentPreference)
+        {
+            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
+            if (clauses.isEmpty()) {
+                throw new UnsupportedOperationException("only equi join is supported");
+            }
+
+            List<Symbol> buildHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
+            List<Symbol> probeHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
+            List<Symbol> outerHashSymbols = Stream.concat(buildHashSymbols.stream(),probeHashSymbols.stream()).collect(Collectors.toList());
+
+
+
+            // join does not pass through preferred hash symbols since they take more memory and since
+            // the join node filters, may take more compute
+            Optional<HashComputation> buildHashComputation = computeHash(buildHashSymbols);
+            PlanWithProperties build = planAndEnforce(node.getBuild(), new HashComputationSet(buildHashComputation), true, new HashComputationSet(buildHashComputation));
+            Symbol buildHashSymbol = build.getRequiredHashSymbol(buildHashComputation.get());
+
+
+
+
+            Optional<HashComputation> outerHashComputation = computeHash(outerHashSymbols);
+
+            // drop undesired hash symbols from build to save memory
+            PlanWithProperties outer = planAndEnforce(node.getOuter(), new HashComputationSet(outerHashComputation), true, new HashComputationSet(outerHashComputation));
+
+            Symbol outerHashSymbol = outer.getRequiredHashSymbol(outerHashComputation.get());
+
+            // build map of all hash symbols
+            // NOTE: Full outer join doesn't use hash symbols
+            Map<HashComputation, Symbol> allHashSymbols = new HashMap<>();
+            if (node.getType() == INNER) {
+                allHashSymbols.putAll(build.getHashSymbols());
+                allHashSymbols.putAll(outer.getHashSymbols());
+            }
+            else {
+                throw new IllegalStateException("no inner join are not supported");
+            }
+
+            return buildAdaptiveJoinNodeWithPreferredHashes(node, build, outer, allHashSymbols, parentPreference, Optional.of(buildHashSymbol), Optional.of(outerHashSymbol));
+        }
+
         private PlanWithProperties buildJoinNodeWithPreferredHashes(
                 JoinNode node,
                 PlanWithProperties left,
@@ -383,6 +430,54 @@ public class HashGenerationOptimizer
                             node.getFilter(),
                             leftHashSymbol,
                             rightHashSymbol,
+                            node.getDistributionType(),
+                            node.isSpillable(),
+                            node.getDynamicFilters(),
+                            node.getReorderJoinStatsAndCost()),
+                    hashSymbolsWithParentPreferences);
+        }
+
+        private PlanWithProperties buildAdaptiveJoinNodeWithPreferredHashes(
+                AdaptiveJoinNode node,
+                PlanWithProperties build,
+                PlanWithProperties outer,
+                Map<HashComputation, Symbol> allHashSymbols,
+                HashComputationSet parentPreference,
+                Optional<Symbol> buildHashSymbol,
+                Optional<Symbol> outerHashSymbol)
+        {
+            // retain only hash symbols preferred by parent nodes
+            Map<HashComputation, Symbol> hashSymbolsWithParentPreferences =
+                    allHashSymbols.entrySet()
+                            .stream()
+                            .filter(entry -> parentPreference.getHashes().contains(entry.getKey()))
+                            .collect(toImmutableMap(Entry::getKey, Entry::getValue));
+            Set<Symbol> preferredHashSymbols = ImmutableSet.copyOf(hashSymbolsWithParentPreferences.values());
+            Set<Symbol> buildOutputSymbols = ImmutableSet.copyOf(node.getBuildOutputSymbols());
+            Set<Symbol> probeOutputSymbols = ImmutableSet.copyOf(node.getProbeOutputSymbols());
+
+            List<Symbol> newBuildOutputSymbols = build.getNode().getOutputSymbols().stream()
+                    .filter(symbol -> buildOutputSymbols.contains(symbol) || preferredHashSymbols.contains(symbol))
+                    .collect(toImmutableList());
+            List<Symbol> newProbeOutputSymbols = outer.getNode().getOutputSymbols().stream()
+                    .filter(symbol -> probeOutputSymbols.contains(symbol) || preferredHashSymbols.contains(symbol))
+                    .collect(toImmutableList());
+
+            return new PlanWithProperties(
+                    new AdaptiveJoinNode(
+                            node.getId(),
+                            node.getType(),
+                            build.getNode(),
+                            outer.getNode(),
+                            node.getCriteria(),
+                            newBuildOutputSymbols,
+                            newProbeOutputSymbols,
+                            node.getOuterLeftSymbols(),
+                            node.getOuterRightSymbols(),
+                            node.isMaySkipOutputDuplicates(),
+                            node.getFilter(),
+                            buildHashSymbol,
+                            outerHashSymbol,
                             node.getDistributionType(),
                             node.isSpillable(),
                             node.getDynamicFilters(),

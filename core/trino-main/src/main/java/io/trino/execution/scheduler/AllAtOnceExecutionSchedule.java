@@ -20,6 +20,7 @@ import com.google.common.collect.Ordering;
 import io.trino.execution.SqlStageExecution;
 import io.trino.execution.StageState;
 import io.trino.sql.planner.PlanFragment;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.JoinNode;
@@ -138,6 +139,14 @@ public class AllAtOnceExecutionSchedule
         {
             node.getRight().accept(this, context);
             node.getLeft().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitAdaptiveJoin(AdaptiveJoinNode node, Void context)
+        {
+            node.getBuild().accept(this, context);
+            node.getOuter().accept(this, context);
             return null;
         }
 

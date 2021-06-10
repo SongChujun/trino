@@ -49,6 +49,7 @@ import io.trino.sql.planner.SubPlan;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.GroupReference;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.ApplyNode;
@@ -460,6 +461,42 @@ public class PlanPrinter
             }
             node.getLeft().accept(this, context);
             node.getRight().accept(this, context);
+
+            return null;
+        }
+
+        @Override
+        public Void visitAdaptiveJoin(AdaptiveJoinNode node, Void context)
+        {
+            List<Expression> joinExpressions = new ArrayList<>();
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                joinExpressions.add(unresolveFunctions(clause.toExpression()));
+            }
+            node.getFilter()
+                    .map(PlanPrinter::unresolveFunctions)
+                    .ifPresent(joinExpressions::add);
+
+            NodeRepresentation nodeOutput;
+            if (node.isCrossJoin()) {
+                checkState(joinExpressions.isEmpty());
+                nodeOutput = addNode(node, "CrossJoin");
+            }
+            else {
+                nodeOutput = addNode(node,
+                        node.getType().getJoinLabel(),
+                        format("[%s]%s", Joiner.on(" AND ").join(joinExpressions), formatHash(node.getBuildHashSymbol(), node.getOuterHashSymbol())),
+                        node.getReorderJoinStatsAndCost());
+            }
+
+            node.getDistributionType().ifPresent(distributionType -> nodeOutput.appendDetailsLine("Distribution: %s", distributionType));
+            if (node.isMaySkipOutputDuplicates()) {
+                nodeOutput.appendDetailsLine("maySkipOutputDuplicates = %s", node.isMaySkipOutputDuplicates());
+            }
+            if (!node.getDynamicFilters().isEmpty()) {
+                nodeOutput.appendDetails("dynamicFilterAssignments = %s", printDynamicFilterAssignments(node.getDynamicFilters()));
+            }
+            node.getBuild().accept(this, context);
+            node.getOuter().accept(this, context);
 
             return null;
         }

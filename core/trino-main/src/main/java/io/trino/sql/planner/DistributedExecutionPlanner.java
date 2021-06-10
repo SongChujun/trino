@@ -28,6 +28,7 @@ import io.trino.split.SampledSplitSource;
 import io.trino.split.SplitManager;
 import io.trino.split.SplitSource;
 import io.trino.sql.DynamicFilters;
+import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.AggregationNode;
 import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.DeleteNode;
@@ -221,6 +222,17 @@ public class DistributedExecutionPlanner
             return ImmutableMap.<PlanNodeId, SplitSource>builder()
                     .putAll(leftSplits)
                     .putAll(rightSplits)
+                    .build();
+        }
+
+        @Override
+        public Map<PlanNodeId, SplitSource> visitAdaptiveJoin(AdaptiveJoinNode node, Void context)
+        {
+            Map<PlanNodeId, SplitSource> buildSplits = node.getBuild().accept(this, context);
+            Map<PlanNodeId, SplitSource> outerSplits = node.getOuter().accept(this, context);
+            return ImmutableMap.<PlanNodeId, SplitSource>builder()
+                    .putAll(buildSplits)
+                    .putAll(outerSplits)
                     .build();
         }
 
