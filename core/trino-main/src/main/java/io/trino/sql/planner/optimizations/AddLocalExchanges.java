@@ -770,11 +770,8 @@ public class AddLocalExchanges
                 buildPreference = singleStream();
             }
             PlanWithProperties build = planAndEnforce(node.getBuild(), buildPreference, buildPreference);
-
-            return rebaseAndDeriveProperties(node, ImmutableList.of(build,outer));
+            return rebaseAndDeriveProperties(node, ImmutableList.of(build, outer));
         }
-
-
 
         @Override
         public PlanWithProperties visitSemiJoin(SemiJoinNode node, StreamPreferredProperties parentPreferences)

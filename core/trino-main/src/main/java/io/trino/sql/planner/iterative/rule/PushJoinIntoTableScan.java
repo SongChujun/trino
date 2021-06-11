@@ -52,7 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -218,10 +217,8 @@ public class PushJoinIntoTableScan
                             joinNode.getDistributionType(),
                             joinNode.isSpillable(),
                             joinNode.getDynamicFilters(),
-                            joinNode.getReorderJoinStatsAndCost()
-                    ));
+                            joinNode.getReorderJoinStatsAndCost()));
         }
-
 
         return Result.ofPlanNode(
                 new ProjectNode(

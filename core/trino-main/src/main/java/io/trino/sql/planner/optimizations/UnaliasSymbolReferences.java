@@ -1030,8 +1030,6 @@ public class UnaliasSymbolReferences
                     outputMapping);
         }
 
-
-
         @Override
         public PlanAndMappings visitAdaptiveJoin(AdaptiveJoinNode node, UnaliasContext context)
         {

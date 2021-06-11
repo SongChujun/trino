@@ -97,11 +97,13 @@ public class DriverContext
         this.localPartitioningIndex = null;
     }
 
-    public void setLocalPartitioningIndex(int index) {
+    public void setLocalPartitioningIndex(int index)
+    {
         this.localPartitioningIndex = index;
     }
 
-    public Integer getLocalPartitioningIndex() {
+    public Integer getLocalPartitioningIndex()
+    {
         return this.localPartitioningIndex;
     }
 

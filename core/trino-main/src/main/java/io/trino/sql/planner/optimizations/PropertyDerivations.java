@@ -550,11 +550,9 @@ public final class PropertyDerivations
                 case LEFT:
                 case RIGHT:
                 case FULL:
-
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
-
 
         @Override
         public ActualProperties visitSemiJoin(SemiJoinNode node, List<ActualProperties> inputProperties)

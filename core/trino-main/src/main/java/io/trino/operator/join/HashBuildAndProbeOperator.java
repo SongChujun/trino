@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.trino.operator.join;
 
 import com.google.common.util.concurrent.ListenableFuture;
@@ -14,73 +27,23 @@ import io.trino.sql.planner.plan.PlanNodeId;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-public class HashBuildAndProbeOperator implements Operator
+public class HashBuildAndProbeOperator
+        implements Operator
 {
-    public static class HashBuildAndProbeOperatorFactory
-            implements OperatorFactory
-    {
-        private final int operatorId;
-        private final PlanNodeId planNodeId;
-        private boolean closed;
-        private final AdaptiveJoinBridge joinBridge;
-        private final PartitionFunction partitionFunction;
-
-        public HashBuildAndProbeOperatorFactory(
-                int operatorId,
-                PlanNodeId planNodeId,
-                PartitionFunction partitionFunction,
-                AdaptiveJoinBridge joinBridge)
-        {
-            this.operatorId = operatorId;
-            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
-            this.partitionFunction = partitionFunction;
-            this.joinBridge = joinBridge;
-        }
-
-        @Override
-        public HashBuildAndProbeOperator createOperator(DriverContext driverContext)
-        {
-            checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
-            Integer index = driverContext.getLocalPartitioningIndex();
-            assert index!=null;
-            return new HashBuildAndProbeOperator(
-                    operatorContext,
-                    joinBridge,
-                    partitionFunction,joinBridge.getHashTable(index));
-        }
-
-        @Override
-        public void noMoreOperators()
-        {
-            closed = true;
-        }
-
-        @Override
-        public OperatorFactory duplicate()
-        {
-            throw new UnsupportedOperationException("Parallel hash build cannot be duplicated");
-        }
-    }
     private static final double INDEX_COMPACTION_ON_REVOCATION_TARGET = 0.8;
-
     private final OperatorContext operatorContext;
     private final LocalMemoryContext localUserMemoryContext;
     private final LocalMemoryContext localRevocableMemoryContext;
     private final HashCollisionsCounter hashCollisionsCounter;
-
-
     private final AdaptiveJoinBridge joinBridge;
-    private HashBuildAndProbeTable table;
     private final PartitionFunction partitionFunction;
-
+    private final HashBuildAndProbeTable table;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
             AdaptiveJoinBridge joinBridge,
             PartitionFunction partitionFunction,
-            HashBuildAndProbeTable table
-    )
+            HashBuildAndProbeTable table)
     {
         this.operatorContext = operatorContext;
         this.localUserMemoryContext = operatorContext.localUserMemoryContext();
@@ -117,12 +80,14 @@ public class HashBuildAndProbeOperator implements Operator
     }
 
     @Override
-    public ListenableFuture<?> startMemoryRevoke() {
+    public ListenableFuture<?> startMemoryRevoke()
+    {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void finishMemoryRevoke() {
+    public void finishMemoryRevoke()
+    {
         throw new UnsupportedOperationException();
     }
 
@@ -133,17 +98,66 @@ public class HashBuildAndProbeOperator implements Operator
     }
 
     @Override
-    public void finish() {
+    public void finish()
+    {
         table.setBuildFinished();
     }
 
-    @Override public boolean isFinished() {
+    @Override
+    public boolean isFinished()
+    {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void close() {
+    public void close()
+    {
         throw new UnsupportedOperationException();
     }
 
+    public static class HashBuildAndProbeOperatorFactory
+            implements OperatorFactory
+    {
+        private final int operatorId;
+        private final PlanNodeId planNodeId;
+        private final AdaptiveJoinBridge joinBridge;
+        private final PartitionFunction partitionFunction;
+        private boolean closed;
+
+        public HashBuildAndProbeOperatorFactory(
+                int operatorId,
+                PlanNodeId planNodeId,
+                PartitionFunction partitionFunction,
+                AdaptiveJoinBridge joinBridge)
+        {
+            this.operatorId = operatorId;
+            this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+            this.partitionFunction = partitionFunction;
+            this.joinBridge = joinBridge;
+        }
+
+        @Override
+        public HashBuildAndProbeOperator createOperator(DriverContext driverContext)
+        {
+            checkState(!closed, "Factory is already closed");
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
+            Integer index = driverContext.getLocalPartitioningIndex();
+            return new HashBuildAndProbeOperator(
+                    operatorContext,
+                    joinBridge,
+                    partitionFunction, joinBridge.getHashTable(index));
+        }
+
+        @Override
+        public void noMoreOperators()
+        {
+            closed = true;
+        }
+
+        @Override
+        public OperatorFactory duplicate()
+        {
+            throw new UnsupportedOperationException("Parallel hash build cannot be duplicated");
+        }
+    }
 }

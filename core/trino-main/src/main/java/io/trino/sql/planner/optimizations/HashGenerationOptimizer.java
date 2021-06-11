@@ -357,19 +357,13 @@ public class HashGenerationOptimizer
 
             List<Symbol> buildHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
             List<Symbol> probeHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
-            List<Symbol> outerHashSymbols = Stream.concat(buildHashSymbols.stream(),probeHashSymbols.stream()).collect(Collectors.toList());
-
-
+            List<Symbol> outerHashSymbols = Stream.concat(buildHashSymbols.stream(), probeHashSymbols.stream()).collect(Collectors.toList());
 
             // join does not pass through preferred hash symbols since they take more memory and since
             // the join node filters, may take more compute
             Optional<HashComputation> buildHashComputation = computeHash(buildHashSymbols);
             PlanWithProperties build = planAndEnforce(node.getBuild(), new HashComputationSet(buildHashComputation), true, new HashComputationSet(buildHashComputation));
             Symbol buildHashSymbol = build.getRequiredHashSymbol(buildHashComputation.get());
-
-
-
-
             Optional<HashComputation> outerHashComputation = computeHash(outerHashSymbols);
 
             // drop undesired hash symbols from build to save memory

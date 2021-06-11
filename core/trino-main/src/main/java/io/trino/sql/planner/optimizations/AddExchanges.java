@@ -850,8 +850,6 @@ public class AddExchanges
             return buildAdaptiveJoin(node, build, outer, JoinNode.DistributionType.PARTITIONED);
         }
 
-
-
         private PlanWithProperties planReplicatedJoin(JoinNode node, PlanWithProperties left)
         {
             // Broadcast Join

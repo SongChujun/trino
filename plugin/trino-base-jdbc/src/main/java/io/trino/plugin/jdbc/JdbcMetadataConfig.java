@@ -82,8 +82,6 @@ public class JdbcMetadataConfig
         return this;
     }
 
-
-
     public boolean isAggregationPushdownEnabled()
     {
         return aggregationPushdownEnabled;

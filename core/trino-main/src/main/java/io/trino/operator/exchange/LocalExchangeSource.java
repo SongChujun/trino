@@ -65,7 +65,8 @@ public class LocalExchangeSource
         return new LocalExchangeBufferInfo(bufferedBytes.get(), buffer.size());
     }
 
-    public int getIndex() {
+    public int getIndex()
+    {
         return index;
     }
 

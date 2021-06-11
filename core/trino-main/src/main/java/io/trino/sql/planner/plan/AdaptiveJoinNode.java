@@ -20,15 +20,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.cost.PlanNodeStatsAndCostSummary;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.Join;
 
 import javax.annotation.concurrent.Immutable;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -39,7 +36,6 @@ import static io.trino.sql.planner.plan.JoinNode.Type.FULL;
 import static io.trino.sql.planner.plan.JoinNode.Type.INNER;
 import static io.trino.sql.planner.plan.JoinNode.Type.LEFT;
 import static io.trino.sql.planner.plan.JoinNode.Type.RIGHT;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
 @Immutable
@@ -69,17 +65,17 @@ public class AdaptiveJoinNode
     public AdaptiveJoinNode(
             @JsonProperty("id") PlanNodeId id,
             @JsonProperty("type") JoinNode.Type type,
-            @JsonProperty("left") PlanNode build,
+            @JsonProperty("build") PlanNode build,
             @JsonProperty("outer") PlanNode outer,
             @JsonProperty("criteria") List<JoinNode.EquiJoinClause> criteria,
             @JsonProperty("buildOutputSymbols") List<Symbol> buildOutputSymbols,
-            @JsonProperty("buildOutputSymbols") List<Symbol> probeOutputSymbols,
+            @JsonProperty("probeOutputSymbols") List<Symbol> probeOutputSymbols,
             @JsonProperty("outerLeftSymbols") List<Symbol> outerLeftSymbols,
             @JsonProperty("outerRightSymbols") List<Symbol> outerRightSymbols,
             @JsonProperty("maySkipOutputDuplicates") boolean maySkipOutputDuplicates,
             @JsonProperty("filter") Optional<Expression> filter,
-            @JsonProperty("leftHashSymbol") Optional<Symbol> buildHashSymbol,
-            @JsonProperty("rightHashSymbol") Optional<Symbol> outerHashSymbol,
+            @JsonProperty("buildHashSymbol") Optional<Symbol> buildHashSymbol,
+            @JsonProperty("outerHashSymbol") Optional<Symbol> outerHashSymbol,
             @JsonProperty("distributionType") Optional<JoinNode.DistributionType> distributionType,
             @JsonProperty("spillable") Optional<Boolean> spillable,
             @JsonProperty("dynamicFilters") Map<DynamicFilterId, Symbol> dynamicFilters,
@@ -120,7 +116,6 @@ public class AdaptiveJoinNode
         Set<Symbol> buildSymbols = ImmutableSet.copyOf(build.getOutputSymbols());
         Set<Symbol> outerSymbols = ImmutableSet.copyOf(outer.getOutputSymbols());
 
-
         checkArgument(buildSymbols.containsAll(buildOutputSymbols), "Left source inputs do not contain all left output symbols");
 
         checkArgument(!(criteria.isEmpty() && buildHashSymbol.isPresent()), "Left hash symbol is only valid in an equijoin");
@@ -146,11 +141,6 @@ public class AdaptiveJoinNode
         }
     }
 
-    public AdaptiveJoinNode flipChildren()
-    {
-        throw new UnsupportedOperationException();
-    }
-
     private static JoinNode.Type flipType(JoinNode.Type type)
     {
         switch (type) {
@@ -171,6 +161,11 @@ public class AdaptiveJoinNode
         return joinCriteria.stream()
                 .map(JoinNode.EquiJoinClause::flip)
                 .collect(toImmutableList());
+    }
+
+    public AdaptiveJoinNode flipChildren()
+    {
+        throw new UnsupportedOperationException();
     }
 
     @JsonProperty("type")
@@ -197,7 +192,7 @@ public class AdaptiveJoinNode
         return criteria;
     }
 
-    @JsonProperty("outerOutputSymbols")
+    @JsonProperty("probeOutputSymbols")
     public List<Symbol> getProbeOutputSymbols()
     {
         return probeOutputSymbols;
@@ -233,7 +228,7 @@ public class AdaptiveJoinNode
         return outerHashSymbol;
     }
 
-    @JsonProperty("rightHashSymbol")
+    @JsonProperty("buildHashSymbol")
     public Optional<Symbol> getBuildHashSymbol()
     {
         return buildHashSymbol;
@@ -242,7 +237,7 @@ public class AdaptiveJoinNode
     @Override
     public List<PlanNode> getSources()
     {
-        return ImmutableList.of(build,outer);
+        return ImmutableList.of(build, outer);
     }
 
     @Override
@@ -294,10 +289,9 @@ public class AdaptiveJoinNode
     public AdaptiveJoinNode replaceChildren(List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
-        return new AdaptiveJoinNode(getId(),type,newChildren.get(0),newChildren.get(1),criteria,
-                buildOutputSymbols,probeOutputSymbols,outerLeftSymbols,outerRightSymbols,maySkipOutputDuplicates,
-                filter,buildHashSymbol,outerHashSymbol,distributionType,spillable,dynamicFilters,reorderJoinStatsAndCost
-                );
+        return new AdaptiveJoinNode(getId(), type, newChildren.get(0), newChildren.get(1), criteria,
+                buildOutputSymbols, probeOutputSymbols, outerLeftSymbols, outerRightSymbols, maySkipOutputDuplicates,
+                filter, buildHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withDistributionType(JoinNode.DistributionType distributionType)
@@ -324,6 +318,4 @@ public class AdaptiveJoinNode
     {
         return criteria.isEmpty() && filter.isEmpty() && type == INNER;
     }
-
-
 }

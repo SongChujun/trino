@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 package io.trino.operator.join;
-import io.trino.operator.join.ArrayPositionLinks;
+
 import org.openjdk.jol.info.ClassLayout;
+
 import java.util.Arrays;
+
 import static io.airlift.slice.SizeOf.sizeOf;
 
 // This is a special positionlink for adaptive join, a little hacky
@@ -26,7 +28,7 @@ public final class AdaptiveJoinPositionLinks
     public AdaptiveJoinPositionLinks(int len)
     {
         this.positionLinks = new int[len];
-        Arrays.fill(this.positionLinks,-1);
+        Arrays.fill(this.positionLinks, -1);
     }
 
     public int start(int position)
@@ -50,7 +52,8 @@ public final class AdaptiveJoinPositionLinks
         return INSTANCE_SIZE + sizeOf(positionLinks);
     }
 
-    public void reset() {
-        Arrays.fill(this.positionLinks,-1);
+    public void reset()
+    {
+        Arrays.fill(this.positionLinks, -1);
     }
 }

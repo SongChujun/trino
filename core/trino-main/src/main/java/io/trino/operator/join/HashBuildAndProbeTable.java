@@ -36,10 +36,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static io.trino.operator.SyntheticAddress.decodePosition;
@@ -53,173 +51,40 @@ import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 // This implementation assumes arrays used in the hash are always a power of 2
-public final class HashBuildAndProbeTable implements LookupSource
+public final class HashBuildAndProbeTable
+        implements LookupSource
 {
-    private class JoinProcessor {
-        private List<Type> buildOutputTypes;
-        private final JoinProbe.JoinProbeFactory joinProbeFactory;
-        private LookupJoinPageBuilder pageBuilder;
-        private IntArrayList probeIndexBuilder;
-
-        private boolean currentProbePositionProducedRow;
-        private boolean isSequentialProbeIndices;
-        private int estimatedProbeBlockBytes;
-        private long joinPosition = -1;
-        private int joinSourcePositions;
-        private boolean outputSingleMatch;
-        private final boolean probeOnOuterSide;
-        private JoinProbe probe;
-        private final JoinStatisticsCounter statisticsCounter;
-        private JoinProcessor (List<Type> buildOutputTypes,
-                JoinProbe.JoinProbeFactory joinProbeFactory,
-                LookupJoinOperatorFactory.JoinType joinType,
-                boolean outputSingleMatch,
-                JoinStatisticsCounter statisticsCounter
-        )
-        {
-            this.buildOutputTypes = buildOutputTypes;
-            this.joinProbeFactory = joinProbeFactory;
-            this.pageBuilder =  new LookupJoinPageBuilder(buildOutputTypes);
-            this.probeIndexBuilder = new IntArrayList();
-            this.currentProbePositionProducedRow = false;
-            this.isSequentialProbeIndices = false;
-            this.estimatedProbeBlockBytes = 0;
-            this.outputSingleMatch = outputSingleMatch;
-            this.statisticsCounter = statisticsCounter;
-
-            probeOnOuterSide = joinType == PROBE_OUTER || joinType == FULL_OUTER;
-
-        }
-        public Page joinPage(Page page) {
-
-
-            probe = joinProbeFactory.createJoinProbe(page);
-            do {
-                if (probe.getPosition() >= 0) {
-                    if (!joinCurrentPosition(HashBuildAndProbeTable.this)) {
-                        break;
-                    }
-                    if (!currentProbePositionProducedRow) {
-                        currentProbePositionProducedRow = true;
-                        if (!outerJoinCurrentPosition()) {
-                            break;
-                        }
-                    }
-                    statisticsCounter.recordProbe(joinSourcePositions);
-                }
-                if (!advanceProbePosition(HashBuildAndProbeTable.this)) {
-                    break;
-                }
-            } while (true);
-            Page outputPage = pageBuilder.build(probe);
-            pageBuilder.reset();
-            return outputPage;
-        }
-
-        public void reset() {
-//            hashBuildFinishedFuture.set(true);
-            this.joinPosition = -1;
-            this.pageBuilder.reset();
-            this.currentProbePositionProducedRow = false;
-            this.isSequentialProbeIndices = false;
-            this.estimatedProbeBlockBytes = 0;
-            this.probeIndexBuilder.clear();
-        }
-
-
-
-
-        private boolean joinCurrentPosition(LookupSource lookupSource)
-        {
-            while (joinPosition >= 0) {
-                if (lookupSource.isJoinPositionEligible(joinPosition, probe.getPosition(), probe.getPage())) {
-                    currentProbePositionProducedRow = true;
-
-                    pageBuilder.appendRow(probe, lookupSource, joinPosition);
-                    joinSourcePositions++;
-                }
-
-                if (outputSingleMatch && currentProbePositionProducedRow) {
-                    joinPosition = -1;
-                }
-                else {
-                    // get next position on lookup side for this probe row
-                    joinPosition = lookupSource.getNextJoinPosition(joinPosition, probe.getPosition(), probe.getPage());
-                }
-
-                if (pageBuilder.isFull()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-
-        private boolean outerJoinCurrentPosition()
-        {
-            if (probeOnOuterSide) {
-                pageBuilder.appendNullForBuild(probe);
-                return !pageBuilder.isFull();
-            }
-            return true;
-        }
-
-        private boolean advanceProbePosition(HashBuildAndProbeTable lookupSource)
-        {
-            if (!probe.advanceNextPosition()) {
-                return false;
-            }
-
-            // update join position
-            joinPosition = probe.getCurrentJoinPosition(lookupSource);
-            // reset row join state for next row
-            joinSourcePositions = 0;
-            currentProbePositionProducedRow = false;
-            return true;
-        }
-
-        private int getEstimatedProbeRowSize(JoinProbe probe)
-        {
-            return 0;
-        }
-    }
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(HashBuildAndProbeTable.class).instanceSize();
     //    private static final DataSize CACHE_SIZE = DataSize.of(128, KILOBYTE);
     private final List<List<Block>> channels;
     private final IntArrayList positionCounts;
-    private SettableFuture<Boolean> hashBuildFinishedFuture;
-    private int pageCount;
-    private int positionCount;
     private final boolean eagerCompact;
-    private long pagesMemorySize;
-    private long estimatedSize;
-    private List<Type> types;
     @Nullable
     private final JoinFilterFunction filterFunction;
-
-
-
-    private AdaptiveJoinPositionLinks positionLinks;
-
     private final JoinProbe.JoinProbeFactory joinProbeFactory;
-    private List<Type> buildOutputTypes;
     private final LongArrayList addresses;
     private final PagesHashStrategy pagesHashStrategy;
-
     private final int channelCount;
     private final int mask;
     private final int[] key;
-    private long size;
     private final int hashSize;
-
     // Native array of hashes for faster collisions resolution compared
     // to accessing values in blocks. We use bytes to reduce memory foot print
     // and there is no performance gain from storing full hashes
     private final byte[] positionToHashes;
+    private final JoinStatisticsCounter statisticsCounter;
+    private final SettableFuture<Boolean> hashBuildFinishedFuture;
+    private int pageCount;
+    private int positionCount;
+    private long pagesMemorySize;
+    private long estimatedSize;
+    private final List<Type> types;
+    private final AdaptiveJoinPositionLinks positionLinks;
+    private final List<Type> buildOutputTypes;
+    private long size;
     private long hashCollisions;
     private double expectedHashCollisions;
-    private JoinProcessor joinProcessor;
-    private final JoinStatisticsCounter statisticsCounter;
+    private final JoinProcessor joinProcessor;
 
     public HashBuildAndProbeTable(
             List<Type> types, //from buildSource.getTypes() -> ; from layout
@@ -238,9 +103,8 @@ public final class HashBuildAndProbeTable implements LookupSource
         this.addresses = new LongArrayList(expectedPositions);
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
 
-
         channels = new ArrayList<>();
-        for (int i = 0; i<types.size();i++) {
+        for (int i = 0; i < types.size(); i++) {
             channels.add(new ArrayList<>());
         }
         this.pagesHashStrategy = new SimplePagesHashStrategy(
@@ -261,7 +125,7 @@ public final class HashBuildAndProbeTable implements LookupSource
         this.hashCollisions = 0;
         this.expectedHashCollisions = 0;
 
-        this.filterFunction =null;//!hacky
+        this.filterFunction = null; //!hacky
         this.joinProbeFactory = requireNonNull(joinProbeFactory, "joinProbeFactory is null");
         this.buildOutputTypes = buildOutputTypes;
 
@@ -273,12 +137,29 @@ public final class HashBuildAndProbeTable implements LookupSource
         positionToHashes = new byte[hashSize];
         this.statisticsCounter = new JoinStatisticsCounter(joinType);
         this.hashBuildFinishedFuture = SettableFuture.create();
-        joinProcessor = new JoinProcessor(buildOutputTypes,joinProbeFactory,joinType,outputSingleMatch,statisticsCounter);
-
-
+        joinProcessor = new JoinProcessor(buildOutputTypes, joinProbeFactory, joinType, outputSingleMatch, statisticsCounter);
     }
 
-    public ListenableFuture<Boolean> getBuildFinishedFuture() {
+    private static int getHashPosition(long rawHash, long mask)
+    {
+        // Avalanches the bits of a long integer by applying the finalisation step of MurmurHash3.
+        //
+        // This function implements the finalisation step of Austin Appleby's <a href="http://sites.google.com/site/murmurhash/">MurmurHash3</a>.
+        // Its purpose is to avalanche the bits of the argument to within 0.25% bias. It is used, among other things, to scramble quickly (but deeply) the hash
+        // values returned by {@link Object#hashCode()}.
+        //
+
+        rawHash ^= rawHash >>> 33;
+        rawHash *= 0xff51afd7ed558ccdL;
+        rawHash ^= rawHash >>> 33;
+        rawHash *= 0xc4ceb9fe1a85ec53L;
+        rawHash ^= rawHash >>> 33;
+
+        return (int) (rawHash & mask);
+    }
+
+    public ListenableFuture<Boolean> getBuildFinishedFuture()
+    {
         return hashBuildFinishedFuture;
     }
 
@@ -289,7 +170,8 @@ public final class HashBuildAndProbeTable implements LookupSource
                 .collect(toImmutableList());
     }
 
-    public synchronized void addPage(Page page) {
+    public synchronized void addPage(Page page)
+    {
         //Add page to channel and address
         if (page.getPositionCount() == 0) {
             return;
@@ -317,7 +199,6 @@ public final class HashBuildAndProbeTable implements LookupSource
             }
             addresses.add(sliceAddress);
         }
-
 
         // We will process addresses in batches, to save memory on array of hashes.
         long hashCollisionsLocal = 0;
@@ -354,14 +235,15 @@ public final class HashBuildAndProbeTable implements LookupSource
         estimatedSize = calculateEstimatedSize();
     }
 
-    public synchronized Page joinPage(Page page) {
+    public synchronized Page joinPage(Page page)
+    {
         return joinProcessor.joinPage(page);
     }
 
-
     //only clears the data, not the controlling information
-    public void reset() {
-        for (List<Block> blockList: channels) {
+    public void reset()
+    {
+        for (List<Block> blockList : channels) {
             blockList.clear();
         }
         this.positionLinks.reset();
@@ -373,10 +255,11 @@ public final class HashBuildAndProbeTable implements LookupSource
         this.size = 0;
         this.hashCollisions = 0;
         this.expectedHashCollisions = 0;
-        Arrays.fill(positionToHashes,(byte)0);
+        Arrays.fill(positionToHashes, (byte) 0);
     }
 
-    public void setBuildFinished() {
+    public void setBuildFinished()
+    {
         hashBuildFinishedFuture.set(true);
     }
 
@@ -479,24 +362,6 @@ public final class HashBuildAndProbeTable implements LookupSource
         return pagesHashStrategy.positionEqualsPositionIgnoreNulls(leftBlockIndex, leftBlockPosition, rightBlockIndex, rightBlockPosition);
     }
 
-    private static int getHashPosition(long rawHash, long mask)
-    {
-        // Avalanches the bits of a long integer by applying the finalisation step of MurmurHash3.
-        //
-        // This function implements the finalisation step of Austin Appleby's <a href="http://sites.google.com/site/murmurhash/">MurmurHash3</a>.
-        // Its purpose is to avalanche the bits of the argument to within 0.25% bias. It is used, among other things, to scramble quickly (but deeply) the hash
-        // values returned by {@link Object#hashCode()}.
-        //
-
-        rawHash ^= rawHash >>> 33;
-        rawHash *= 0xff51afd7ed558ccdL;
-        rawHash ^= rawHash >>> 33;
-        rawHash *= 0xc4ceb9fe1a85ec53L;
-        rawHash ^= rawHash >>> 33;
-
-        return (int) (rawHash & mask);
-    }
-
     private long calculateEstimatedSize()
     {
         return 0;
@@ -565,4 +430,129 @@ public final class HashBuildAndProbeTable implements LookupSource
     {
     }
 
+    private class JoinProcessor
+    {
+        private final JoinProbe.JoinProbeFactory joinProbeFactory;
+        private final boolean probeOnOuterSide;
+        private final JoinStatisticsCounter statisticsCounter;
+        private final List<Type> buildOutputTypes;
+        private final LookupJoinPageBuilder pageBuilder;
+        private final IntArrayList probeIndexBuilder;
+        private boolean currentProbePositionProducedRow;
+        private boolean isSequentialProbeIndices;
+        private int estimatedProbeBlockBytes;
+        private long joinPosition = -1;
+        private int joinSourcePositions;
+        private final boolean outputSingleMatch;
+        private JoinProbe probe;
+
+        private JoinProcessor(List<Type> buildOutputTypes,
+                JoinProbe.JoinProbeFactory joinProbeFactory,
+                LookupJoinOperatorFactory.JoinType joinType,
+                boolean outputSingleMatch,
+                JoinStatisticsCounter statisticsCounter)
+        {
+            this.buildOutputTypes = buildOutputTypes;
+            this.joinProbeFactory = joinProbeFactory;
+            this.pageBuilder = new LookupJoinPageBuilder(buildOutputTypes);
+            this.probeIndexBuilder = new IntArrayList();
+            this.currentProbePositionProducedRow = false;
+            this.isSequentialProbeIndices = false;
+            this.estimatedProbeBlockBytes = 0;
+            this.outputSingleMatch = outputSingleMatch;
+            this.statisticsCounter = statisticsCounter;
+
+            probeOnOuterSide = joinType == PROBE_OUTER || joinType == FULL_OUTER;
+        }
+
+        public Page joinPage(Page page)
+        {
+            probe = joinProbeFactory.createJoinProbe(page);
+            do {
+                if (probe.getPosition() >= 0) {
+                    if (!joinCurrentPosition(HashBuildAndProbeTable.this)) {
+                        break;
+                    }
+                    if (!currentProbePositionProducedRow) {
+                        currentProbePositionProducedRow = true;
+                        if (!outerJoinCurrentPosition()) {
+                            break;
+                        }
+                    }
+                    statisticsCounter.recordProbe(joinSourcePositions);
+                }
+                if (!advanceProbePosition(HashBuildAndProbeTable.this)) {
+                    break;
+                }
+            }
+            while (true);
+            Page outputPage = pageBuilder.build(probe);
+            pageBuilder.reset();
+            return outputPage;
+        }
+
+        public void reset()
+        {
+//            hashBuildFinishedFuture.set(true);
+            this.joinPosition = -1;
+            this.pageBuilder.reset();
+            this.currentProbePositionProducedRow = false;
+            this.isSequentialProbeIndices = false;
+            this.estimatedProbeBlockBytes = 0;
+            this.probeIndexBuilder.clear();
+        }
+
+        private boolean joinCurrentPosition(LookupSource lookupSource)
+        {
+            while (joinPosition >= 0) {
+                if (lookupSource.isJoinPositionEligible(joinPosition, probe.getPosition(), probe.getPage())) {
+                    currentProbePositionProducedRow = true;
+
+                    pageBuilder.appendRow(probe, lookupSource, joinPosition);
+                    joinSourcePositions++;
+                }
+
+                if (outputSingleMatch && currentProbePositionProducedRow) {
+                    joinPosition = -1;
+                }
+                else {
+                    // get next position on lookup side for this probe row
+                    joinPosition = lookupSource.getNextJoinPosition(joinPosition, probe.getPosition(), probe.getPage());
+                }
+
+                if (pageBuilder.isFull()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private boolean outerJoinCurrentPosition()
+        {
+            if (probeOnOuterSide) {
+                pageBuilder.appendNullForBuild(probe);
+                return !pageBuilder.isFull();
+            }
+            return true;
+        }
+
+        private boolean advanceProbePosition(HashBuildAndProbeTable lookupSource)
+        {
+            if (!probe.advanceNextPosition()) {
+                return false;
+            }
+
+            // update join position
+            joinPosition = probe.getCurrentJoinPosition(lookupSource);
+            // reset row join state for next row
+            joinSourcePositions = 0;
+            currentProbePositionProducedRow = false;
+            return true;
+        }
+
+        private int getEstimatedProbeRowSize(JoinProbe probe)
+        {
+            return 0;
+        }
+    }
 }

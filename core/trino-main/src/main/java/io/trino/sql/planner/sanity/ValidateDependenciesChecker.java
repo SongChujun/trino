@@ -458,10 +458,9 @@ public final class ValidateDependenciesChecker
                 checkArgument(buildInputs.contains(clause.getRight()), "Symbol from join clause (%s) not in left source (%s)", clause.getLeft(), node.getBuild().getOutputSymbols());
                 checkArgument(outerInputs.contains(clause.getLeft()), "Symbol from join clause (%s) not in right source (%s)", clause.getRight(), node.getOuter().getOutputSymbols());
                 checkArgument(outerInputs.contains(clause.getRight()), "Symbol from join clause (%s) not in right source (%s)", clause.getRight(), node.getOuter().getOutputSymbols());
-
             }
 
-            if (node.getFilter().isPresent()||node.isCrossJoin()) {
+            if (node.getFilter().isPresent() || node.isCrossJoin()) {
                 throw new IllegalStateException("filter is not supported");
             }
             return null;
