@@ -2740,10 +2740,17 @@ public class LocalExecutionPlanner
                     outerContext.getNextOperatorId(), node.getId(), joinBridge, true, buildPartitionFunction,
                     node.getOuterLeftSymbols(), node.getOuterRightSymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
 
-            PhysicalOperation buildSideResult = new PhysicalOperation(buildSideTableOperator,
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+
+            PhysicalOperation buildSideResult = new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
                     buildSource);
 
-            PhysicalOperation outerSideResult = new PhysicalOperation(outerTableOperator,
+            PhysicalOperation outerSideResult = new PhysicalOperation(outerTableOperator, outputMappings.build(), buildContext,
                     outerSource);
 
             LocalExecutionPlanContext[] subContexts = new LocalExecutionPlanContext[] {buildContext, outerContext};
@@ -2769,7 +2776,7 @@ public class LocalExecutionPlanner
                     FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
                     partitionCount,
                     types,
-                    null,
+                    ImmutableList.of(),
                     Optional.empty(),
                     exchangeSourcePipelineExecutionStrategy,
                     maxLocalExchangeBufferSize,
@@ -2798,6 +2805,7 @@ public class LocalExecutionPlanner
 
             // the main driver is not an input... the exchange sources are the input for the plan
             context.setInputDriver(false);
+            context.setDriverInstanceCount(localExchangeFactory.getBufferCount());
 
             // instance count must match the number of partitions in the exchange
             verify(context.getDriverInstanceCount().getAsInt() == localExchangeFactory.getBufferCount(),
