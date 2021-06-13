@@ -50,6 +50,7 @@ public class OuterJoinResultProcessingOperator
     private final List<Symbol> outputSymbols;
     private final ListenableFuture<Boolean> hashBuildFinishedFuture;
     private final HashBuildAndProbeTable hashTable;
+    private boolean isFinished;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -186,13 +187,13 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean isFinished()
     {
-        throw new UnsupportedOperationException();
+        return  isFinished;
     }
 
     @Override
     public void finish()
     {
-        return;
+        isFinished  = true;
     }
 
     public static class OuterJoinResultProcessingOperatorFactory

@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -60,6 +61,7 @@ import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DIST
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_PASSTHROUGH_DISTRIBUTION;
+import static io.trino.sql.planner.SystemPartitioningHandle.MERGE_PASSTHROUGH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -134,6 +136,13 @@ public class LocalExchange
             exchangerSupplier = () -> {
                 checkState(sourceIterator.hasNext(), "no more sources");
                 return new PassthroughExchanger(sourceIterator.next(), maxBufferedBytes.toBytes() / bufferCount, memoryManager::updateMemoryUsage);
+            };
+        }
+        else if (partitioning.equals(MERGE_PASSTHROUGH_DISTRIBUTION)) {
+            AtomicInteger idx = new AtomicInteger();
+            exchangerSupplier = () -> {
+                return new PassthroughExchanger(this.sources.get(idx.getAndIncrement()%this.sources.size()) , maxBufferedBytes.toBytes() / bufferCount, memoryManager::updateMemoryUsage);
+
             };
         }
         else if (partitioning.equals(FIXED_HASH_DISTRIBUTION) || partitioning.getConnectorId().isPresent()) {
@@ -473,8 +482,11 @@ public class LocalExchange
             // partitioned exchange
             bufferCount = defaultConcurrency;
         }
-        else {
-            throw new IllegalArgumentException("Unsupported local exchange partitioning " + partitioning);
+        else if (partitioning.equals(MERGE_PASSTHROUGH_DISTRIBUTION)) {
+            bufferCount = defaultConcurrency;
+            checkArgument(partitionChannels.isEmpty(), "Passthrough exchange must not have partition channels");
+        } else {
+            throw new UnsupportedOperationException();
         }
         return bufferCount;
     }

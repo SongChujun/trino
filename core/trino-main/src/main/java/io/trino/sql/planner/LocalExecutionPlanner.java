@@ -308,6 +308,7 @@ import static io.trino.sql.planner.SystemPartitioningHandle.COORDINATOR_DISTRIBU
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_PASSTHROUGH_DISTRIBUTION;
+import static io.trino.sql.planner.SystemPartitioningHandle.MERGE_PASSTHROUGH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.AggregationNode.Step.FINAL;
@@ -2773,7 +2774,7 @@ public class LocalExecutionPlanner
             LocalExchangeFactory localExchangeFactory = new LocalExchangeFactory(
                     nodePartitioningManager,
                     session,
-                    FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
+                    MERGE_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exchange here
                     partitionCount,
                     types,
                     ImmutableList.of(),

@@ -38,6 +38,7 @@ public class HashBuildAndProbeOperator
     private final AdaptiveJoinBridge joinBridge;
     private final PartitionFunction partitionFunction;
     private final HashBuildAndProbeTable table;
+    private boolean isFinished;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
@@ -53,6 +54,7 @@ public class HashBuildAndProbeOperator
         this.joinBridge = joinBridge;
         this.partitionFunction = partitionFunction;
         this.table = table;
+        isFinished = false;
     }
 
     @Override
@@ -101,19 +103,20 @@ public class HashBuildAndProbeOperator
     public void finish()
     {
         table.setBuildFinished();
+        isFinished = true;
     }
 
     @Override
     public boolean isFinished()
     {
-        throw new UnsupportedOperationException();
+        return isFinished;
     }
 
-    @Override
-    public void close()
-    {
-        throw new UnsupportedOperationException();
-    }
+//    @Override
+//    public void close()
+//    {
+////        return;//subject to change
+//    }
 
     public static class HashBuildAndProbeOperatorFactory
             implements OperatorFactory

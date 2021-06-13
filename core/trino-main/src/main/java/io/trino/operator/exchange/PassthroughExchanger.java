@@ -41,7 +41,7 @@ public class PassthroughExchanger
     }
 
     @Override
-    public void accept(Page page)
+    public synchronized void accept(Page page)
     {
         long retainedSizeInBytes = page.getRetainedSizeInBytes();
         bufferMemoryManager.updateMemoryUsage(retainedSizeInBytes);
