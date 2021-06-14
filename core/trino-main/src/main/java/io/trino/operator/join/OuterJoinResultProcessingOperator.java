@@ -94,7 +94,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean needsInput()
     {
-        throw new UnsupportedOperationException();
+        return hashBuildFinishedFuture.isDone();
     }
 
     @Override
@@ -166,13 +166,6 @@ public class OuterJoinResultProcessingOperator
         return outputMappings.build();
     }
 
-    private List<Integer> rangeList(int endExclusive)
-    {
-        return IntStream.range(0, endExclusive)
-                .boxed()
-                .collect(toImmutableList());
-    }
-
     @Override
     public Page getOutput()
     {
@@ -187,7 +180,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean isFinished()
     {
-        return  isFinished;
+        return isFinished;
     }
 
     @Override

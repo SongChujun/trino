@@ -72,7 +72,7 @@ public class HashBuildAndProbeOperator
     @Override
     public boolean needsInput()
     {
-        throw new UnsupportedOperationException();
+        return true;
     }
 
     @Override
@@ -96,7 +96,7 @@ public class HashBuildAndProbeOperator
     @Override
     public Page getOutput()
     {
-        throw new UnsupportedOperationException();
+        return null;
     }
 
     @Override

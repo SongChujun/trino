@@ -2702,13 +2702,15 @@ public class LocalExecutionPlanner
 
         private PhysicalOperation createAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)
         {
+            context.setDriverInstanceCount(getTaskConcurrency(session));
+
             PlanNode buildNode = node.getBuild();
             LocalExecutionPlanContext buildContext = context.createSubContext();
             PhysicalOperation buildSource = buildNode.accept(this, buildContext);
 
             PlanNode outerNode = node.getOuter();
-            LocalExecutionPlanContext outerContext = context.createSubContext();
-            PhysicalOperation outerSource = outerNode.accept(this, outerContext);
+//            LocalExecutionPlanContext outerContext = context.createSubContext();
+            PhysicalOperation outerSource = outerNode.accept(this, context);
 
             List<Type> buildTypes = buildSource.getTypes();
             List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getBuildOutputSymbols(), buildSource.getLayout()));
@@ -2738,7 +2740,7 @@ public class LocalExecutionPlanner
                     buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
 
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                    outerContext.getNextOperatorId(), node.getId(), joinBridge, true, buildPartitionFunction,
+                    context.getNextOperatorId(), node.getId(), joinBridge, true, buildPartitionFunction,
                     node.getOuterLeftSymbols(), node.getOuterRightSymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
@@ -2747,72 +2749,16 @@ public class LocalExecutionPlanner
                 Symbol symbol = outputSymbols.get(i);
                 outputMappings.put(symbol, i);
             }
+            context.addDriverFactory(
+                    buildContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
+                            buildSource),
+                    buildContext.getDriverInstanceCount()
+            );
 
-            PhysicalOperation buildSideResult = new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
-                    buildSource);
-
-            PhysicalOperation outerSideResult = new PhysicalOperation(outerTableOperator, outputMappings.build(), buildContext,
+            return new PhysicalOperation(outerTableOperator, outputMappings.build(), context,
                     outerSource);
-
-            LocalExecutionPlanContext[] subContexts = new LocalExecutionPlanContext[] {buildContext, outerContext};
-            PhysicalOperation[] sources = new PhysicalOperation[] {buildSideResult, outerSideResult};
-
-            List<Type> types = getSourceOperatorTypes(node, context.getTypes());
-
-            PipelineExecutionStrategy exchangeSourcePipelineExecutionStrategy = GROUPED_EXECUTION;
-            List<DriverFactoryParameters> driverFactoryParametersList = new ArrayList<>();
-            for (int i = 0; i < sources.length; i++) {
-                LocalExecutionPlanContext subContext = subContexts[i];
-                PhysicalOperation source = sources[i];
-                driverFactoryParametersList.add(new DriverFactoryParameters(subContext, source));
-
-                if (source.getPipelineExecutionStrategy() == UNGROUPED_EXECUTION) {
-                    exchangeSourcePipelineExecutionStrategy = UNGROUPED_EXECUTION;
-                }
-            }
-
-            LocalExchangeFactory localExchangeFactory = new LocalExchangeFactory(
-                    nodePartitioningManager,
-                    session,
-                    MERGE_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exchange here
-                    partitionCount,
-                    types,
-                    ImmutableList.of(),
-                    Optional.empty(),
-                    exchangeSourcePipelineExecutionStrategy,
-                    maxLocalExchangeBufferSize,
-                    blockTypeOperators);
-            for (int i = 0; i < sources.length; i++) {
-                DriverFactoryParameters driverFactoryParameters = driverFactoryParametersList.get(i);
-                PhysicalOperation source = driverFactoryParameters.getSource();
-                LocalExecutionPlanContext subContext = driverFactoryParameters.getSubContext();
-
-                List<Symbol> expectedLayout = node.getOutputSymbols();
-                Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(expectedLayout, source.getLayout());
-
-                context.addDriverFactory(
-                        subContext.isInputDriver(),
-                        false,
-                        new PhysicalOperation(
-                                new LocalExchangeSinkOperatorFactory(
-                                        localExchangeFactory,
-                                        subContext.getNextOperatorId(),
-                                        node.getId(),
-                                        localExchangeFactory.newSinkFactoryId(),
-                                        pagePreprocessor),
-                                source),
-                        subContext.getDriverInstanceCount());
-            }
-
-            // the main driver is not an input... the exchange sources are the input for the plan
-            context.setInputDriver(false);
-            context.setDriverInstanceCount(localExchangeFactory.getBufferCount());
-
-            // instance count must match the number of partitions in the exchange
-            verify(context.getDriverInstanceCount().getAsInt() == localExchangeFactory.getBufferCount(),
-                    "driver instance count must match the number of exchange partitions");
-
-            return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchangeFactory), makeLayout(node), context, exchangeSourcePipelineExecutionStrategy);
         }
 
         private LocalPartitionGenerator getLocalPartitionGenerator(OptionalInt hashChannel, List<Integer> joinChannels, List<Type> types, int partitionCount)
