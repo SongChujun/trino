@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Stack;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -145,7 +146,7 @@ public class OuterJoinResultProcessingOperator
         }
         int[] leftRetainedPositions = Arrays.stream(nullIndicators).filter(value -> (value == 1 || value == 2)).toArray();
         int[] outputRetainedPositions = Arrays.stream(nullIndicators).filter(value -> value == 2).toArray();
-        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(IntStream.range(0, leftSymbols.size()).toArray());
+        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(),Stream.of(page.getChannelCount()-1)).mapToInt(i->i).toArray());
         Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
     }
@@ -180,7 +181,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean isFinished()
     {
-        return isFinished;
+        return isFinished && pageBuffer.isEmpty();
     }
 
     @Override
