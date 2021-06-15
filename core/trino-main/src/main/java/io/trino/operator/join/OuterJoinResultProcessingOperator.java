@@ -43,7 +43,6 @@ public class OuterJoinResultProcessingOperator
     private final PlanNodeId planNodeId;
     private final boolean isInnerJoin;
     private final Stack<Page> pageBuffer;
-    private final PartitionFunction buildPartitionFunction;
     private final List<Symbol> leftSymbols;
     private final List<Symbol> rightSymbols;
     private final List<Symbol> leftJoinSymbols;
@@ -57,8 +56,6 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext,
             PlanNodeId planNodeId,
             boolean isInnerJoin,
-            AdaptiveJoinBridge joinBridge,
-            PartitionFunction buildPartitionFunction,
             List<Symbol> leftSymbols,
             List<Symbol> rightSymbols,
             List<Symbol> leftJoinSymbols,
@@ -70,7 +67,6 @@ public class OuterJoinResultProcessingOperator
         this.planNodeId = planNodeId;
         this.isInnerJoin = isInnerJoin;
         this.hashTable = table;
-        this.buildPartitionFunction = buildPartitionFunction;
         this.leftSymbols = leftSymbols;
         this.rightSymbols = rightSymbols;
         this.leftJoinSymbols = leftJoinSymbols;
@@ -197,7 +193,6 @@ public class OuterJoinResultProcessingOperator
         private final PlanNodeId planNodeId;
         private final AdaptiveJoinBridge joinBridge;
         private final boolean isInnerJoin;
-        private final PartitionFunction buildPartitionFunction;
         private final List<Symbol> leftSymbols;
         private final List<Symbol> rightSymbols;
         private final List<Symbol> leftJoinSymbols;
@@ -210,7 +205,6 @@ public class OuterJoinResultProcessingOperator
                 PlanNodeId planNodeId,
                 AdaptiveJoinBridge joinBridge,
                 boolean isInnerJoin,
-                PartitionFunction buildPartitionFunction,
                 List<Symbol> leftSymbols,
                 List<Symbol> rightSymbols,
                 List<Symbol> leftJoinSymbols,
@@ -221,7 +215,6 @@ public class OuterJoinResultProcessingOperator
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
             this.isInnerJoin = isInnerJoin;
-            this.buildPartitionFunction = buildPartitionFunction;
             this.leftSymbols = leftSymbols;
             this.rightSymbols = rightSymbols;
             this.leftJoinSymbols = leftJoinSymbols;
@@ -236,7 +229,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
 
-            return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin, joinBridge, buildPartitionFunction,
+            return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin,
                     leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex));
         }
 

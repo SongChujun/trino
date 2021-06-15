@@ -181,108 +181,108 @@ public class TestAdaptiveJoinOperator
     @Test(dataProvider = "hashJoinTestValues")
     public void testTableBasic(boolean parallelBuild, boolean probeHashEnabled, boolean buildHashEnabled)
     {
-        TaskContext taskContext = createTaskContext();
-
-        int length = 100;
-        List<Type> types = ImmutableList.of(BIGINT, BIGINT, BIGINT);
-        OptionalInt hashChannel = OptionalInt.of(types.size() - 1);
-        List<Integer> joinChannels = Ints.asList(0);
-        List<Type> buildOutputTypes = types.subList(0, 2);
-        int expectedPositions = length;
-        Optional<List<Integer>> buildOutputChannels = Optional.of(Ints.asList(0, 1));
-        JoinProbe.JoinProbeFactory buildJoinProbeFactory = new JoinProbe.JoinProbeFactory(buildOutputChannels.get().stream().mapToInt(i -> i).toArray(), joinChannels, hashChannel);
-
-        int partitionCount = parallelBuild ? PARTITION_COUNT : 1;
-
-        // build factory
-        RowPagesBuilder buildPages = rowPagesBuilder(buildHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
-                .addSequencePage(10, 20, 30)
-                .addSequencePage(10, 30, 40);
-
-        List<Page> buildInput = buildPages.build();
-
-        AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(
-                types, hashChannel, joinChannels, buildOutputTypes, buildOutputChannels, TYPE_OPERATOR_FACTORY, length, LookupJoinOperatorFactory.JoinType.INNER,
-                true, false, partitionCount);
-
-        PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(hashChannel, joinChannels, types, partitionCount);
-
-        HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory hashBuildOperatorFactory = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
-                0, new PlanNodeId("0"), buildPartitionFunction, joinBridge);
-
-        BuildSideSetup buildSideSetup = setupBuildSide(parallelBuild, taskContext, joinChannels, buildPages, hashBuildOperatorFactory);
-
-        List<Symbol> leftSymbols = ImmutableList.<Symbol>builder()
-                .add(new Symbol("L1"))
-                .add(new Symbol("L2"))
-                .build();
-
-        List<Symbol> rightSymbols = ImmutableList.<Symbol>builder()
-                .add(new Symbol("R1"))
-                .add(new Symbol("R2"))
-                .build();
-
-        List<Symbol> leftJoinSymbols = ImmutableList.<Symbol>builder()
-                .add(new Symbol("L1"))
-                .build();
-
-        List<Symbol> rightJoinSymbols = ImmutableList.<Symbol>builder()
-                .add(new Symbol("R1"))
-                .build();
-
-        List<Symbol> outputSymbols = ImmutableList.<Symbol>builder()
-                .addAll(leftSymbols).addAll(rightSymbols).build();
-
-        OperatorFactory outerJoinProcessingOperatorFactory = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                0, new PlanNodeId("0"), joinBridge, true, buildPartitionFunction, leftSymbols, rightSymbols,
-                leftJoinSymbols, rightJoinSymbols, outputSymbols);
-
-        // probe factory
-        RowPagesBuilder probePages = rowPagesBuilder(probeHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
-                .addSequencePage(10, 25, 1000)
-                .addSequencePage(3, 35, 1000);
-
-        List<Page> probeInput = probePages.build();
-
-        BuildSideSetup outerSideSetup = setupBuildSide(parallelBuild, taskContext, Ints.asList(2, 3), probePages, outerJoinProcessingOperatorFactory);
-
-        LocalExchange.LocalExchangeFactory localExchangeFactory = new LocalExchange.LocalExchangeFactory(
-                nodePartitioningManager,
-                taskContext.getSession(),
-                FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
-                partitionCount,
-                types,
-                null,
-                Optional.empty(),
-                UNGROUPED_EXECUTION,
-                DataSize.of(32, DataSize.Unit.MEGABYTE),
-                TYPE_OPERATOR_FACTORY);
-
-        instantiateBuildDrivers(buildSideSetup, taskContext, localExchangeFactory);
-        instantiateBuildDrivers(outerSideSetup, taskContext, localExchangeFactory);
-
-        runDriver(buildSideSetup);
-        runDriver(outerSideSetup);
-
-        OperatorFactory sourceOperatorFactory = new LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory(0, new PlanNodeId("0"), localExchangeFactory);
-
-        instantiateMergeDrivers(taskContext, sourceOperatorFactory);
-
-        MaterializedResult expected = MaterializedResult.resultBuilder(taskContext.getSession(), concat(probePages.getTypesWithoutHash(), buildPages.getTypesWithoutHash()))
-                .row(25L, 1000L, 25L, 35L)
-                .row(26L, 1001L, 26L, 36L)
-                .row(27L, 1002L, 27L, 37L)
-                .row(28L, 1003L, 28L, 38L)
-                .row(29L, 1004L, 29L, 39L)
-                .row(30L, 1005L, 30L, 40L)
-                .row(31L, 1006L, 31L, 41L)
-                .row(32L, 1007L, 32L, 42L)
-                .row(33L, 1008L, 33L, 43L)
-                .row(34L, 1009L, 34L, 44L)
-                .row(35L, 1000L, 35L, 45L)
-                .row(36L, 1001L, 36L, 46L)
-                .row(37L, 1002L, 37L, 47L)
-                .build();
+//        TaskContext taskContext = createTaskContext();
+//
+//        int length = 100;
+//        List<Type> types = ImmutableList.of(BIGINT, BIGINT, BIGINT);
+//        OptionalInt hashChannel = OptionalInt.of(types.size() - 1);
+//        List<Integer> joinChannels = Ints.asList(0);
+//        List<Type> buildOutputTypes = types.subList(0, 2);
+//        int expectedPositions = length;
+//        Optional<List<Integer>> buildOutputChannels = Optional.of(Ints.asList(0, 1));
+//        JoinProbe.JoinProbeFactory buildJoinProbeFactory = new JoinProbe.JoinProbeFactory(buildOutputChannels.get().stream().mapToInt(i -> i).toArray(), joinChannels, hashChannel);
+//
+//        int partitionCount = parallelBuild ? PARTITION_COUNT : 1;
+//
+//        // build factory
+//        RowPagesBuilder buildPages = rowPagesBuilder(buildHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
+//                .addSequencePage(10, 20, 30)
+//                .addSequencePage(10, 30, 40);
+//
+//        List<Page> buildInput = buildPages.build();
+//
+//        AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(
+//                types, hashChannel, joinChannels, buildOutputTypes, buildOutputChannels, TYPE_OPERATOR_FACTORY, length, LookupJoinOperatorFactory.JoinType.INNER,
+//                true, false, partitionCount);
+//
+//        PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(hashChannel, joinChannels, types, partitionCount);
+//
+//        HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory hashBuildOperatorFactory = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+//                0, new PlanNodeId("0"), buildPartitionFunction, joinBridge);
+//
+//        BuildSideSetup buildSideSetup = setupBuildSide(parallelBuild, taskContext, joinChannels, buildPages, hashBuildOperatorFactory);
+//
+//        List<Symbol> leftSymbols = ImmutableList.<Symbol>builder()
+//                .add(new Symbol("L1"))
+//                .add(new Symbol("L2"))
+//                .build();
+//
+//        List<Symbol> rightSymbols = ImmutableList.<Symbol>builder()
+//                .add(new Symbol("R1"))
+//                .add(new Symbol("R2"))
+//                .build();
+//
+//        List<Symbol> leftJoinSymbols = ImmutableList.<Symbol>builder()
+//                .add(new Symbol("L1"))
+//                .build();
+//
+//        List<Symbol> rightJoinSymbols = ImmutableList.<Symbol>builder()
+//                .add(new Symbol("R1"))
+//                .build();
+//
+//        List<Symbol> outputSymbols = ImmutableList.<Symbol>builder()
+//                .addAll(leftSymbols).addAll(rightSymbols).build();
+//
+//        OperatorFactory outerJoinProcessingOperatorFactory = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
+//                0, new PlanNodeId("0"), joinBridge, true, buildPartitionFunction, leftSymbols, rightSymbols,
+//                leftJoinSymbols, rightJoinSymbols, outputSymbols);
+//
+//        // probe factory
+//        RowPagesBuilder probePages = rowPagesBuilder(probeHashEnabled, Ints.asList(0), ImmutableList.of(BIGINT, BIGINT))
+//                .addSequencePage(10, 25, 1000)
+//                .addSequencePage(3, 35, 1000);
+//
+//        List<Page> probeInput = probePages.build();
+//
+//        BuildSideSetup outerSideSetup = setupBuildSide(parallelBuild, taskContext, Ints.asList(2, 3), probePages, outerJoinProcessingOperatorFactory);
+//
+//        LocalExchange.LocalExchangeFactory localExchangeFactory = new LocalExchange.LocalExchangeFactory(
+//                nodePartitioningManager,
+//                taskContext.getSession(),
+//                FIXED_PASSTHROUGH_DISTRIBUTION, // explicitly use pass through exachange here
+//                partitionCount,
+//                types,
+//                null,
+//                Optional.empty(),
+//                UNGROUPED_EXECUTION,
+//                DataSize.of(32, DataSize.Unit.MEGABYTE),
+//                TYPE_OPERATOR_FACTORY);
+//
+//        instantiateBuildDrivers(buildSideSetup, taskContext, localExchangeFactory);
+//        instantiateBuildDrivers(outerSideSetup, taskContext, localExchangeFactory);
+//
+//        runDriver(buildSideSetup);
+//        runDriver(outerSideSetup);
+//
+//        OperatorFactory sourceOperatorFactory = new LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory(0, new PlanNodeId("0"), localExchangeFactory);
+//
+//        instantiateMergeDrivers(taskContext, sourceOperatorFactory);
+//
+//        MaterializedResult expected = MaterializedResult.resultBuilder(taskContext.getSession(), concat(probePages.getTypesWithoutHash(), buildPages.getTypesWithoutHash()))
+//                .row(25L, 1000L, 25L, 35L)
+//                .row(26L, 1001L, 26L, 36L)
+//                .row(27L, 1002L, 27L, 37L)
+//                .row(28L, 1003L, 28L, 38L)
+//                .row(29L, 1004L, 29L, 39L)
+//                .row(30L, 1005L, 30L, 40L)
+//                .row(31L, 1006L, 31L, 41L)
+//                .row(32L, 1007L, 32L, 42L)
+//                .row(33L, 1008L, 33L, 43L)
+//                .row(34L, 1009L, 34L, 44L)
+//                .row(35L, 1000L, 35L, 45L)
+//                .row(36L, 1001L, 36L, 46L)
+//                .row(37L, 1002L, 37L, 47L)
+//                .build();
 
 //        List<Page> actual = new ArrayList<>();
 //        for (Page page: buildInput) {

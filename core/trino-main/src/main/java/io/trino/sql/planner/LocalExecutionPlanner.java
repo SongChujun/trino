@@ -2719,7 +2719,12 @@ public class LocalExecutionPlanner
                     .collect(toImmutableList());
             OptionalInt buildHashChannel = node.getBuildHashSymbol().map(channelGetter(buildSource))
                     .map(OptionalInt::of).orElse(OptionalInt.empty());
+
+            OptionalInt probeHashChannel = node.getOuterHashSymbol().map(channelGetter(outerSource)).map(i->i-node.getOuterRightSymbols().size())
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
+            List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout()));
+
             Map<Symbol, Integer> buildLayout = buildSource.getLayout();
             boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
                     node.getCriteria().stream()
@@ -2731,8 +2736,8 @@ public class LocalExecutionPlanner
             boolean eagerCompact = false; //hacky;
             int partitionCount = getTaskConcurrency(session);
             //hacky only support inner join for now
-            AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel,
-                    buildChannels, buildOutputTypes, Optional.of(buildOutputChannels), blockTypeOperators,
+            AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
+                    buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), blockTypeOperators,
                     expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
             PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
 
@@ -2740,7 +2745,7 @@ public class LocalExecutionPlanner
                     buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
 
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                    context.getNextOperatorId(), node.getId(), joinBridge, true, buildPartitionFunction,
+                    context.getNextOperatorId(), node.getId(), joinBridge, true,
                     node.getOuterLeftSymbols(), node.getOuterRightSymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();

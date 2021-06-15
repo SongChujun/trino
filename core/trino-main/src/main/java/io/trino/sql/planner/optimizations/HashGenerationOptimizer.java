@@ -356,8 +356,8 @@ public class HashGenerationOptimizer
             }
 
             List<Symbol> buildHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
-            List<Symbol> probeHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
-            List<Symbol> outerHashSymbols = Stream.concat(buildHashSymbols.stream(), probeHashSymbols.stream()).collect(Collectors.toList());
+            List<Symbol> outerHashSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
+//            List<Symbol> outerHashSymbols = Stream.concat(buildHashSymbols.stream(), probeHashSymbols.stream()).collect(Collectors.toList());
 
             // join does not pass through preferred hash symbols since they take more memory and since
             // the join node filters, may take more compute

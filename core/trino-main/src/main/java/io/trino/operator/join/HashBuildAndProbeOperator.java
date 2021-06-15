@@ -35,14 +35,12 @@ public class HashBuildAndProbeOperator
     private final LocalMemoryContext localUserMemoryContext;
     private final LocalMemoryContext localRevocableMemoryContext;
     private final HashCollisionsCounter hashCollisionsCounter;
-    private final AdaptiveJoinBridge joinBridge;
     private final PartitionFunction partitionFunction;
     private final HashBuildAndProbeTable table;
     private boolean isFinished;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
-            AdaptiveJoinBridge joinBridge,
             PartitionFunction partitionFunction,
             HashBuildAndProbeTable table)
     {
@@ -51,7 +49,6 @@ public class HashBuildAndProbeOperator
         this.localRevocableMemoryContext = operatorContext.localRevocableMemoryContext();
         this.hashCollisionsCounter = new HashCollisionsCounter(operatorContext);
         operatorContext.setInfoSupplier(hashCollisionsCounter);
-        this.joinBridge = joinBridge;
         this.partitionFunction = partitionFunction;
         this.table = table;
         isFinished = false;
@@ -147,7 +144,6 @@ public class HashBuildAndProbeOperator
             Integer index = driverContext.getLocalPartitioningIndex();
             return new HashBuildAndProbeOperator(
                     operatorContext,
-                    joinBridge,
                     partitionFunction, joinBridge.getHashTable(index));
         }
 
