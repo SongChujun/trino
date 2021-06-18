@@ -51,6 +51,7 @@ public class OuterJoinResultProcessingOperator
     private final ListenableFuture<Boolean> hashBuildFinishedFuture;
     private final HashBuildAndProbeTable hashTable;
     private boolean isFinished;
+    private final int partitioningIndex;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -61,12 +62,14 @@ public class OuterJoinResultProcessingOperator
             List<Symbol> leftJoinSymbols,
             List<Symbol> rightJoinSymbols,
             List<Symbol> outputSymbols,
-            HashBuildAndProbeTable table)
+            HashBuildAndProbeTable table,
+            int partitioningIndex)
     {
         this.operatorContext = operatorContext;
         this.planNodeId = planNodeId;
         this.isInnerJoin = isInnerJoin;
         this.hashTable = table;
+        this.partitioningIndex = partitioningIndex;
         this.leftSymbols = leftSymbols;
         this.rightSymbols = rightSymbols;
         this.leftJoinSymbols = leftJoinSymbols;
@@ -140,8 +143,8 @@ public class OuterJoinResultProcessingOperator
                 nullIndicators[i] = 3;
             }
         }
-        int[] leftRetainedPositions = Arrays.stream(nullIndicators).filter(value -> (value == 1 || value == 2)).toArray();
-        int[] outputRetainedPositions = Arrays.stream(nullIndicators).filter(value -> value == 2).toArray();
+        int[] leftRetainedPositions = IntStream.range(0,nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2)).toArray();
+        int[] outputRetainedPositions = IntStream.range(0,nullIndicators.length).filter(idx -> ( nullIndicators[idx] == 2)).toArray();
         Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(),Stream.of(page.getChannelCount()-1)).mapToInt(i->i).toArray());
         Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
@@ -230,7 +233,7 @@ public class OuterJoinResultProcessingOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
 
             return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin,
-                    leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex));
+                    leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex),localPartitioningIndex);
         }
 
         @Override

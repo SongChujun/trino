@@ -741,8 +741,7 @@ public class AddLocalExchanges
         @Override
         public PlanWithProperties visitAdaptiveJoin(AdaptiveJoinNode node, StreamPreferredProperties parentPreferences)
         {
-            List<Symbol> outerHashSymbols = ImmutableList.<Symbol>builder().addAll(Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight))
-                    .addAll(Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft)).build();
+            List<Symbol> outerHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
             StreamPreferredProperties outerPreference;
             if (getTaskConcurrency(session) > 1) {
                 outerPreference = exactlyPartitionedOn(outerHashSymbols);

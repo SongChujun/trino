@@ -38,11 +38,13 @@ public class HashBuildAndProbeOperator
     private final PartitionFunction partitionFunction;
     private final HashBuildAndProbeTable table;
     private boolean isFinished;
+    private final int partitioningIndex;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
             PartitionFunction partitionFunction,
-            HashBuildAndProbeTable table)
+            HashBuildAndProbeTable table,
+            int partitioningIndex)
     {
         this.operatorContext = operatorContext;
         this.localUserMemoryContext = operatorContext.localUserMemoryContext();
@@ -51,6 +53,7 @@ public class HashBuildAndProbeOperator
         operatorContext.setInfoSupplier(hashCollisionsCounter);
         this.partitionFunction = partitionFunction;
         this.table = table;
+        this.partitioningIndex = partitioningIndex;
         isFinished = false;
     }
 
@@ -144,7 +147,7 @@ public class HashBuildAndProbeOperator
             Integer index = driverContext.getLocalPartitioningIndex();
             return new HashBuildAndProbeOperator(
                     operatorContext,
-                    partitionFunction, joinBridge.getHashTable(index));
+                    partitionFunction, joinBridge.getHashTable(index),index);
         }
 
         @Override

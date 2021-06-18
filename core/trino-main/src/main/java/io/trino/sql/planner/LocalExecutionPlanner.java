@@ -2709,7 +2709,6 @@ public class LocalExecutionPlanner
             PhysicalOperation buildSource = buildNode.accept(this, buildContext);
 
             PlanNode outerNode = node.getOuter();
-//            LocalExecutionPlanContext outerContext = context.createSubContext();
             PhysicalOperation outerSource = outerNode.accept(this, context);
 
             List<Type> buildTypes = buildSource.getTypes();
@@ -2725,13 +2724,12 @@ public class LocalExecutionPlanner
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
             List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout()));
 
-            Map<Symbol, Integer> buildLayout = buildSource.getLayout();
             boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
                     node.getCriteria().stream()
                             .map(JoinNode.EquiJoinClause::getRight)
                             .collect(toImmutableSet())
                             .containsAll(node.getBuildOutputSymbols());
-            int expectedPositions = 10_000_000; //hard code here, subject to change in the future
+            int expectedPositions = 100; //hard code here, subject to change in the future
 
             boolean eagerCompact = false; //hacky;
             int partitionCount = getTaskConcurrency(session);

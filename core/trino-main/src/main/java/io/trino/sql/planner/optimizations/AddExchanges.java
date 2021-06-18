@@ -835,7 +835,7 @@ public class AddExchanges
                             partitionedExchange(idAllocator.getNextId(), REMOTE, build.getNode(), rightSymbols, Optional.empty()),
                             build.getProperties());
                     outer = withDerivedProperties(
-                            partitionedExchange(idAllocator.getNextId(), REMOTE, outer.getNode(), ImmutableList.<Symbol>builder().addAll(rightSymbols).addAll(leftSymbols).build(), Optional.empty()),
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, outer.getNode(), leftSymbols, Optional.empty()),
                             outer.getProperties());
                 }
             }
