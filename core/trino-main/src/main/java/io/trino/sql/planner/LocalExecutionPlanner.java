@@ -2713,6 +2713,7 @@ public class LocalExecutionPlanner
 
             List<Type> buildTypes = buildSource.getTypes();
             List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getBuildOutputSymbols(), buildSource.getLayout()));
+            List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getProbeOutputSymbols(), outerSource.getLayout()));
             ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
                     .map(buildSource.getTypes()::get)
                     .collect(toImmutableList());
@@ -2735,7 +2736,7 @@ public class LocalExecutionPlanner
             int partitionCount = getTaskConcurrency(session);
             //hacky only support inner join for now
             AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
-                    buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), blockTypeOperators,
+                    buildChannels, probeChannels, buildOutputTypes, Optional.of(probeOutputChannels), blockTypeOperators,
                     expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
             PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
 
