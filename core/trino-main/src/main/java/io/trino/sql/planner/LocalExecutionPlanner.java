@@ -307,8 +307,6 @@ import static io.trino.sql.planner.SortExpressionExtractor.extractSortExpression
 import static io.trino.sql.planner.SystemPartitioningHandle.COORDINATOR_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_BROADCAST_DISTRIBUTION;
-import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_PASSTHROUGH_DISTRIBUTION;
-import static io.trino.sql.planner.SystemPartitioningHandle.MERGE_PASSTHROUGH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SCALED_WRITER_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.plan.AggregationNode.Step.FINAL;
@@ -2720,7 +2718,7 @@ public class LocalExecutionPlanner
             OptionalInt buildHashChannel = node.getBuildHashSymbol().map(channelGetter(buildSource))
                     .map(OptionalInt::of).orElse(OptionalInt.empty());
 
-            OptionalInt probeHashChannel = node.getOuterHashSymbol().map(channelGetter(outerSource)).map(i->i-node.getOuterRightSymbols().size())
+            OptionalInt probeHashChannel = node.getOuterHashSymbol().map(channelGetter(outerSource)).map(i -> i - node.getOuterRightSymbols().size())
                     .map(OptionalInt::of).orElse(OptionalInt.empty());
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
             List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout()));
@@ -2758,8 +2756,7 @@ public class LocalExecutionPlanner
                     false,
                     new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
                             buildSource),
-                    buildContext.getDriverInstanceCount()
-            );
+                    buildContext.getDriverInstanceCount());
 
             return new PhysicalOperation(outerTableOperator, outputMappings.build(), context,
                     outerSource);

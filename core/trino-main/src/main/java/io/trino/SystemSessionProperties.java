@@ -1071,8 +1071,6 @@ public final class SystemSessionProperties
         return session.getSystemProperty(USE_HYBRID_JOIN, Boolean.class);
     }
 
-
-
     public static boolean isPredicatePushdownUseTableProperties(Session session)
     {
         return session.getSystemProperty(PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES, Boolean.class);

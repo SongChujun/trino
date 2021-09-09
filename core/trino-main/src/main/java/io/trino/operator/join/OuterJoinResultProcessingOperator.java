@@ -19,12 +19,10 @@ import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
-import io.trino.operator.PartitionFunction;
 import io.trino.spi.Page;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.PlanNodeId;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Stack;
@@ -33,7 +31,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public class OuterJoinResultProcessingOperator
@@ -112,7 +109,7 @@ public class OuterJoinResultProcessingOperator
     //input format: probeSideData, outerSideData
     private Page[] extractPages(Page page, boolean isInnerJoin)
     {
-        //nullIndicators encoding: 0 stands for null,t, 1 stands for t,null, 2 stands for s,t ,3 for null,null
+        //nullIndicators encoding: 0 stands for null, t, 1 stands for s, null, 2 stands for s,t ,3 for null,null
         int[] nullIndicators = new int[page.getPositionCount()];
         Map<Symbol, Integer> layout = makeLayout(leftSymbols, rightSymbols);
         for (int i = 0; i < page.getPositionCount(); i++) {
@@ -143,9 +140,9 @@ public class OuterJoinResultProcessingOperator
                 nullIndicators[i] = 3;
             }
         }
-        int[] leftRetainedPositions = IntStream.range(0,nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2)).toArray();
-        int[] outputRetainedPositions = IntStream.range(0,nullIndicators.length).filter(idx -> ( nullIndicators[idx] == 2)).toArray();
-        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(),Stream.of(page.getChannelCount()-1)).mapToInt(i->i).toArray());
+        int[] leftRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2)).toArray();
+        int[] outputRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 2)).toArray();
+        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
         Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
     }
@@ -186,7 +183,7 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void finish()
     {
-        isFinished  = true;
+        isFinished = true;
     }
 
     public static class OuterJoinResultProcessingOperatorFactory
@@ -233,7 +230,7 @@ public class OuterJoinResultProcessingOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
 
             return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin,
-                    leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex),localPartitioningIndex);
+                    leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex), localPartitioningIndex);
         }
 
         @Override

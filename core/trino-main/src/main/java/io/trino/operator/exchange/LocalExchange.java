@@ -141,8 +141,7 @@ public class LocalExchange
         else if (partitioning.equals(MERGE_PASSTHROUGH_DISTRIBUTION)) {
             AtomicInteger idx = new AtomicInteger();
             exchangerSupplier = () -> {
-                return new PassthroughExchanger(this.sources.get(idx.getAndIncrement()%this.sources.size()) , maxBufferedBytes.toBytes() / bufferCount, memoryManager::updateMemoryUsage);
-
+                return new PassthroughExchanger(this.sources.get(idx.getAndIncrement() % this.sources.size()), maxBufferedBytes.toBytes() / bufferCount, memoryManager::updateMemoryUsage);
             };
         }
         else if (partitioning.equals(FIXED_HASH_DISTRIBUTION) || partitioning.getConnectorId().isPresent()) {
@@ -485,7 +484,8 @@ public class LocalExchange
         else if (partitioning.equals(MERGE_PASSTHROUGH_DISTRIBUTION)) {
             bufferCount = defaultConcurrency;
             checkArgument(partitionChannels.isEmpty(), "Passthrough exchange must not have partition channels");
-        } else {
+        }
+        else {
             throw new UnsupportedOperationException();
         }
         return bufferCount;

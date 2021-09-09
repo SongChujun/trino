@@ -147,7 +147,7 @@ public class HashBuildAndProbeOperator
             Integer index = driverContext.getLocalPartitioningIndex();
             return new HashBuildAndProbeOperator(
                     operatorContext,
-                    partitionFunction, joinBridge.getHashTable(index),index);
+                    partitionFunction, joinBridge.getHashTable(index), index);
         }
 
         @Override
