@@ -88,6 +88,12 @@ public abstract class ForwardingJdbcClient
     }
 
     @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        return delegate().getPrimaryKeyColumns(session, tableHandle);
+    }
+
+    @Override
     public Optional<ColumnMapping> toColumnMapping(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
     {
         return delegate().toColumnMapping(session, connection, typeHandle);
@@ -259,6 +265,12 @@ public abstract class ForwardingJdbcClient
     public void setColumnComment(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, Optional<String> comment)
     {
         delegate().setColumnComment(session, handle, column, comment);
+    }
+
+    @Override
+    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    {
+        return delegate().getNthPercentile(session, handle, column, n);
     }
 
     @Override

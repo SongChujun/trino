@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.jdbc.jmx;
 
+import com.google.common.collect.ImmutableMap;
 import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
@@ -108,6 +109,12 @@ public final class StatisticsAwareJdbcClient
     }
 
     @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        return stats.getGetPrimaryKeyColumns().wrap(() -> delegate().getPrimaryKeyColumns(session, tableHandle));
+    }
+
+    @Override
     public Optional<ColumnMapping> toColumnMapping(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
     {
         return stats.getToPrestoType().wrap(() -> delegate().toColumnMapping(session, connection, typeHandle));
@@ -192,6 +199,12 @@ public final class StatisticsAwareJdbcClient
     public void setColumnComment(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, Optional<String> comment)
     {
         stats.getSetColumnComment().wrap(() -> delegate().setColumnComment(session, handle, column, comment));
+    }
+
+    @Override
+    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    {
+        return stats.getGetNthPercentile().wrap(() -> delegate().getNthPercentile(session, handle, column, n));
     }
 
     @Override

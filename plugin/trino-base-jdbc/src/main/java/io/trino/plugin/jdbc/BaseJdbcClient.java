@@ -338,6 +338,16 @@ public abstract class BaseJdbcClient
                 null);
     }
 
+    protected ResultSet getPrimaryKeyColumns(JdbcTableHandle tableHandle, DatabaseMetaData metadata)
+            throws SQLException
+    {
+        RemoteTableName remoteTableName = tableHandle.getRequiredNamedRelation().getRemoteTableName();
+        return metadata.getPrimaryKeys(
+                remoteTableName.getCatalogName().orElse(null),
+                escapeNamePattern(remoteTableName.getSchemaName(), metadata.getSearchStringEscape()).orElse(null),
+                escapeNamePattern(Optional.of(remoteTableName.getTableName()), metadata.getSearchStringEscape()).orElse(null));
+    }
+
     /**
      * @deprecated Each connector should provide its own explicit type mapping, along with respective tests.
      */

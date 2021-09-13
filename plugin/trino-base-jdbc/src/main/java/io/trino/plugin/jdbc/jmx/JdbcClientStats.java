@@ -30,11 +30,13 @@ public final class JdbcClientStats
     private final JdbcApiStats createSchema = new JdbcApiStats();
     private final JdbcApiStats createTable = new JdbcApiStats();
     private final JdbcApiStats setColumnComment = new JdbcApiStats();
+    private final JdbcApiStats getNthPercentile = new JdbcApiStats();
     private final JdbcApiStats dropColumn = new JdbcApiStats();
     private final JdbcApiStats dropSchema = new JdbcApiStats();
     private final JdbcApiStats dropTable = new JdbcApiStats();
     private final JdbcApiStats finishInsertTable = new JdbcApiStats();
     private final JdbcApiStats getColumns = new JdbcApiStats();
+    private final JdbcApiStats getPrimaryKeyColumns = new JdbcApiStats();
     private final JdbcApiStats getConnectionWithHandle = new JdbcApiStats();
     private final JdbcApiStats getConnectionWithSplit = new JdbcApiStats();
     private final JdbcApiStats getPreparedStatement = new JdbcApiStats();
@@ -139,6 +141,13 @@ public final class JdbcClientStats
 
     @Managed
     @Nested
+    public JdbcApiStats getGetNthPercentile()
+    {
+        return getNthPercentile;
+    }
+
+    @Managed
+    @Nested
     public JdbcApiStats getDropColumn()
     {
         return dropColumn;
@@ -170,6 +179,13 @@ public final class JdbcClientStats
     public JdbcApiStats getGetColumns()
     {
         return getColumns;
+    }
+
+    @Managed
+    @Nested
+    public JdbcApiStats getGetPrimaryKeyColumns()
+    {
+        return getPrimaryKeyColumns;
     }
 
     @Managed

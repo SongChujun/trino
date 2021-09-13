@@ -593,6 +593,14 @@ public final class MetadataManager
     }
 
     @Override
+    public List<String> getPrimaryKeyColumns(Session session, TableHandle tableHandle)
+    {
+        CatalogName catalogName = tableHandle.getCatalogName();
+        ConnectorMetadata metadata = getMetadata(session, catalogName);
+        return metadata.getPrimaryKeyColumns(session.toConnectorSession(catalogName), tableHandle.getConnectorHandle());
+    }
+
+    @Override
     public ColumnMetadata getColumnMetadata(Session session, TableHandle tableHandle, ColumnHandle columnHandle)
     {
         requireNonNull(tableHandle, "tableHandle is null");
@@ -601,6 +609,17 @@ public final class MetadataManager
         CatalogName catalogName = tableHandle.getCatalogName();
         ConnectorMetadata metadata = getMetadata(session, catalogName);
         return metadata.getColumnMetadata(session.toConnectorSession(catalogName), tableHandle.getConnectorHandle(), columnHandle);
+    }
+
+    @Override
+    public Map<Integer, Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle, int n)
+    {
+        requireNonNull(tableHandle, "tableHandle is null");
+        requireNonNull(columnHandle, "columnHandle is null");
+
+        CatalogName catalogName = tableHandle.getCatalogName();
+        ConnectorMetadata metadata = getMetadata(session, catalogName);
+        return metadata.getNthPercentile(session.toConnectorSession(catalogName), tableHandle.getConnectorHandle(), columnHandle, n);
     }
 
     @Override

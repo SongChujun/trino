@@ -38,6 +38,7 @@ import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.Assignments;
+import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.Patterns;
 import io.trino.sql.planner.plan.PlanNode;
@@ -46,6 +47,7 @@ import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.tree.BooleanLiteral;
 import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.Expression;
+import io.trino.sql.tree.LongLiteral;
 import io.trino.sql.tree.SymbolReference;
 
 import java.util.List;
@@ -57,7 +59,7 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.SystemSessionProperties.isAllowPushdownIntoConnectors;
-import static io.trino.SystemSessionProperties.isHybridEnabled;
+import static io.trino.SystemSessionProperties.isHybridJoinEnabled;
 import static io.trino.matching.Capture.newCapture;
 import static io.trino.spi.predicate.Domain.onlyNull;
 import static io.trino.sql.ExpressionUtils.and;
@@ -187,37 +189,59 @@ public class PushJoinIntoTableScan
                         .putAll(rightConstraint.getDomains().orElseThrow())
                         .build());
         // may need some extra condition here
-        if (isHybridEnabled(context.getSession())) {
-            PlanNode build = right;
-            PlanNode outer = new TableScanNode(
-                    joinNode.getId(),
-                    handle,
-                    ImmutableList.copyOf(assignments.keySet()),
-                    assignments,
-                    newEnforcedConstraint,
-                    deriveTableStatisticsForPushdown(context.getStatsProvider(), context.getSession(), joinApplicationResult.get().isPrecalculateStatistics(), joinNode),
-                    false,
-                    Optional.empty());
-            return Result.ofPlanNode(
-                    new AdaptiveJoinNode(
-                            context.getIdAllocator().getNextId(),
-                            joinNode.getType(),
-                            build,
-                            outer,
-                            joinNode.getCriteria(),
-                            joinNode.getRightOutputSymbols(),
-                            joinNode.getLeftOutputSymbols(),
-                            // may hard code here!
-                            left.getAssignments().keySet().stream().collect(toImmutableList()),
-                            right.getAssignments().keySet().stream().collect(toImmutableList()),
-                            joinNode.isMaySkipOutputDuplicates(),
-                            joinNode.getFilter(),
-                            Optional.empty(),
-                            Optional.empty(),
-                            joinNode.getDistributionType(),
-                            joinNode.isSpillable(),
-                            joinNode.getDynamicFilters(),
-                            joinNode.getReorderJoinStatsAndCost()));
+        if (isHybridJoinEnabled(context.getSession())) {
+            Map<String, ColumnHandle> leftColumnHandles = metadata.getColumnHandles(context.getSession(), left.getTable());
+            Map<String, ColumnHandle> rightColumnHandles = metadata.getColumnHandles(context.getSession(), right.getTable());
+            List<String> leftPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), left.getTable());
+            if (!leftPrimaryKeyColumns.isEmpty()) {
+                List<String> rightPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), right.getTable());
+                if (!rightPrimaryKeyColumns.isEmpty()) {
+                    Optional<ColumnHandle> firstRightPrimaryKeyColumnHandle = rightColumnHandles.entrySet().stream().filter(cl -> cl.getKey().equals(rightPrimaryKeyColumns.get(0))).map(Map.Entry::getValue).findFirst();
+                    if (firstRightPrimaryKeyColumnHandle.isPresent()) {
+                        int ntile = 10;
+                        Map<Integer, Object> nthPercentile;
+                        Expression buildFilterPredicate;
+                        Expression outerFilterPredicate;
+                        nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get(), ntile);
+                        Symbol filterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(firstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
+                        Expression delimiter = new LongLiteral(String.valueOf(nthPercentile.get(ntile / 2)));
+                        buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN, filterSymbol.toSymbolReference(), delimiter);
+                        outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL, filterSymbol.toSymbolReference(), delimiter);
+                        PlanNode build = right;
+                        build = new FilterNode(context.getIdAllocator().getNextId(), build, buildFilterPredicate);
+                        PlanNode outer = new TableScanNode(
+                                joinNode.getId(),
+                                handle,
+                                ImmutableList.copyOf(assignments.keySet()),
+                                assignments,
+                                newEnforcedConstraint,
+                                deriveTableStatisticsForPushdown(context.getStatsProvider(), context.getSession(), joinApplicationResult.get().isPrecalculateStatistics(), joinNode),
+                                false,
+                                Optional.empty());
+                        outer = new FilterNode(context.getIdAllocator().getNextId(), outer, outerFilterPredicate);
+                        return Result.ofPlanNode(
+                                new AdaptiveJoinNode(
+                                        context.getIdAllocator().getNextId(),
+                                        joinNode.getType(),
+                                        build,
+                                        outer,
+                                        joinNode.getCriteria(),
+                                        joinNode.getRightOutputSymbols(),
+                                        joinNode.getLeftOutputSymbols(),
+                                        // may hard code here!
+                                        left.getAssignments().keySet().stream().collect(toImmutableList()),
+                                        right.getAssignments().keySet().stream().collect(toImmutableList()),
+                                        joinNode.isMaySkipOutputDuplicates(),
+                                        joinNode.getFilter(),
+                                        Optional.empty(),
+                                        Optional.empty(),
+                                        joinNode.getDistributionType(),
+                                        joinNode.isSpillable(),
+                                        joinNode.getDynamicFilters(),
+                                        joinNode.getReorderJoinStatsAndCost()));
+                    }
+                }
+            }
         }
 
         return Result.ofPlanNode(

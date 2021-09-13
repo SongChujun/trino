@@ -77,6 +77,8 @@ public class CachingJdbcClient
     private final Cache<TableNamesCacheKey, List<SchemaTableName>> tableNamesCache;
     private final Cache<TableHandleCacheKey, Optional<JdbcTableHandle>> tableHandleCache;
     private final Cache<ColumnsCacheKey, List<JdbcColumnHandle>> columnsCache;
+    private final Cache<ColumnsCacheKey, List<String>> primaryKeycolumnsCache;
+    private final Cache<ColumnNtileCacheKey, Map<Integer, Object>> nthPercentileCache;
     private final Cache<TableStatisticsCacheKey, TableStatistics> statisticsCache;
 
     @Inject
@@ -116,6 +118,8 @@ public class CachingJdbcClient
         tableNamesCache = cacheBuilder.build();
         tableHandleCache = cacheBuilder.build();
         columnsCache = cacheBuilder.build();
+        primaryKeycolumnsCache = cacheBuilder.build();
+        nthPercentileCache = cacheBuilder.build();
         statisticsCache = cacheBuilder.build();
     }
 
@@ -148,6 +152,13 @@ public class CachingJdbcClient
         }
         ColumnsCacheKey key = new ColumnsCacheKey(getIdentityKey(session), getSessionProperties(session), tableHandle.getRequiredNamedRelation().getSchemaTableName());
         return get(columnsCache, key, () -> delegate.getColumns(session, tableHandle));
+    }
+
+    @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        ColumnsCacheKey key = new ColumnsCacheKey(getIdentityKey(session), getSessionProperties(session), tableHandle.getRequiredNamedRelation().getSchemaTableName());
+        return get(primaryKeycolumnsCache, key, () -> delegate.getPrimaryKeyColumns(session, tableHandle));
     }
 
     @Override
@@ -364,10 +375,18 @@ public class CachingJdbcClient
     }
 
     @Override
+    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    {
+        ColumnNtileCacheKey key = new ColumnNtileCacheKey(getIdentityKey(session), getSessionProperties(session), handle.getRequiredNamedRelation().getSchemaTableName(), column.getColumnName());
+        return get(nthPercentileCache, key, () -> delegate.getNthPercentile(session, handle, column, n));
+    }
+
+    @Override
     public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column)
     {
         delegate.addColumn(session, handle, column);
         invalidateColumnsCache(handle.asPlainTable().getSchemaTableName());
+        invalidatePrimaryKeyColumnsCache(handle.asPlainTable().getSchemaTableName());
     }
 
     @Override
@@ -375,6 +394,8 @@ public class CachingJdbcClient
     {
         delegate.dropColumn(session, handle, column);
         invalidateColumnsCache(handle.asPlainTable().getSchemaTableName());
+        invalidatePrimaryKeyColumnsCache(handle.asPlainTable().getSchemaTableName());
+        invalidateNthPercentileCache(handle.asPlainTable().getSchemaTableName(), column.getColumnName());
     }
 
     @Override
@@ -382,6 +403,8 @@ public class CachingJdbcClient
     {
         delegate.renameColumn(session, handle, jdbcColumn, newColumnName);
         invalidateColumnsCache(handle.asPlainTable().getSchemaTableName());
+        invalidatePrimaryKeyColumnsCache(handle.asPlainTable().getSchemaTableName());
+        invalidateNthPercentileCache(handle.asPlainTable().getSchemaTableName(), jdbcColumn.getColumnName());
     }
 
     @Override
@@ -460,6 +483,9 @@ public class CachingJdbcClient
     private void invalidateTableCaches(SchemaTableName schemaTableName)
     {
         invalidateColumnsCache(schemaTableName);
+        invalidatePrimaryKeyColumnsCache(schemaTableName);
+        invalidateNthPercentileCache(schemaTableName);
+
         invalidateCache(tableHandleCache, key -> key.tableName.equals(schemaTableName));
         invalidateCache(tableNamesCache, key -> key.schemaName.equals(Optional.of(schemaTableName.getSchemaName())));
         invalidateCache(statisticsCache, key -> key.tableHandle.references(schemaTableName));
@@ -468,6 +494,21 @@ public class CachingJdbcClient
     private void invalidateColumnsCache(SchemaTableName table)
     {
         invalidateCache(columnsCache, key -> key.table.equals(table));
+    }
+
+    private void invalidatePrimaryKeyColumnsCache(SchemaTableName table)
+    {
+        invalidateCache(primaryKeycolumnsCache, key -> key.table.equals(table));
+    }
+
+    private void invalidateNthPercentileCache(SchemaTableName table, String column)
+    {
+        invalidateCache(nthPercentileCache, key -> key.table.equals(table) && key.columnName.equals(column));
+    }
+
+    private void invalidateNthPercentileCache(SchemaTableName table)
+    {
+        invalidateCache(nthPercentileCache, key -> key.table.equals(table));
     }
 
     @VisibleForTesting
@@ -548,6 +589,60 @@ public class CachingJdbcClient
                     .add("identity", identity)
                     .add("sessionProperties", sessionProperties)
                     .add("table", table)
+                    .toString();
+        }
+    }
+
+    private static final class ColumnNtileCacheKey
+    {
+        private final JdbcIdentityCacheKey identity;
+        private final SchemaTableName table;
+        private final String columnName;
+        private final Map<String, Object> sessionProperties;
+
+        private ColumnNtileCacheKey(JdbcIdentityCacheKey identity, Map<String, Object> sessionProperties, SchemaTableName table, String columnName)
+        {
+            this.identity = requireNonNull(identity, "identity is null");
+            this.sessionProperties = ImmutableMap.copyOf(requireNonNull(sessionProperties, "sessionProperties is null"));
+            this.table = requireNonNull(table, "table is null");
+            this.columnName = requireNonNull(columnName, "table is null");
+        }
+
+        public JdbcIdentityCacheKey getIdentity()
+        {
+            return identity;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            ColumnNtileCacheKey that = (ColumnNtileCacheKey) o;
+            return Objects.equals(identity, that.identity) &&
+                    Objects.equals(sessionProperties, that.sessionProperties) &&
+                    Objects.equals(table, that.table) &&
+                    Objects.equals(columnName, that.columnName);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(identity, sessionProperties, table, columnName);
+        }
+
+        @Override
+        public String toString()
+        {
+            return toStringHelper(this)
+                    .add("identity", identity)
+                    .add("sessionProperties", sessionProperties)
+                    .add("table", table)
+                    .add("column", columnName)
                     .toString();
         }
     }

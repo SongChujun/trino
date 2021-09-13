@@ -223,6 +223,11 @@ public interface ConnectorMetadata
         throw new TrinoException(GENERIC_INTERNAL_ERROR, "ConnectorMetadata getTableHandle() is implemented without getColumnHandles()");
     }
 
+    default List<String> getPrimaryKeyColumns(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return List.of();
+    }
+
     /**
      * Gets the metadata for the specified table column.
      *
@@ -337,6 +342,11 @@ public interface ConnectorMetadata
     default void setColumnComment(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, Optional<String> comment)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting column comments");
+    }
+
+    default Map<Integer, Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, int n)
+    {
+        return Map.of();
     }
 
     /**

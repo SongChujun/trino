@@ -105,6 +105,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -112,6 +113,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -384,6 +386,32 @@ public class PostgreSqlClient
                             format("Table '%s' has no supported columns (all %s columns are not supported)", tableHandle.getSchemaTableName(), allColumns));
                 }
                 return ImmutableList.copyOf(columns);
+            }
+        }
+        catch (SQLException e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+    }
+
+    @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        checkArgument(tableHandle.isNamedRelation(), "Cannot get columns for %s", tableHandle);
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (ResultSet resultSet = getPrimaryKeyColumns(tableHandle, connection.getMetaData())) {
+                List<String> columnNames = new ArrayList<>();
+                List<Short> keySeqs = new ArrayList<>();
+                while (resultSet.next()) {
+                    String columnName = resultSet.getString("COLUMN_NAME");
+                    columnNames.add(columnName);
+                    Short keySeq = resultSet.getShort("KEY_SEQ");
+                    keySeqs.add(keySeq);
+                }
+                String[] res = new String[columnNames.size()];
+                for (int i = 0; i< columnNames.size(); i++) {
+                    res[keySeqs.get(i)-1] = columnNames.get(i);
+                }
+                return Arrays.asList(res);
             }
         }
         catch (SQLException e) {
@@ -881,6 +909,35 @@ public class PostgreSqlClient
                 quoted(column.getColumnName()),
                 comment.isPresent() ? format("'%s'", comment.get()) : "NULL");
         execute(session, sql);
+    }
+
+    @Override
+    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    {
+        String sql = format("select nth, min(%s)\n" +
+                "from (select %s, ntile(%d) over (order by %s) as nth from %s)  as ntile_t\n" +
+                "group by nth order by nth",
+                quoted(column.getColumnName()),
+                quoted(column.getColumnName()),
+                n,
+                quoted(column.getColumnName()),
+                quoted(handle.asPlainTable().getRemoteTableName()));
+
+        ImmutableMap.Builder<Integer, Object> res = new ImmutableMap.Builder<>();
+
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        res.put(resultSet.getInt("nth"), resultSet.getObject("min"));
+                    }
+                }
+                return res.build();
+            }
+        }
+        catch (Exception e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
     }
 
     private static ColumnMapping timestampWithTimeZoneColumnMapping(int precision)

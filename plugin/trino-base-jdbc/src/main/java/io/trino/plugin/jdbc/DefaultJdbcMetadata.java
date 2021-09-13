@@ -565,6 +565,12 @@ public class DefaultJdbcMetadata
     }
 
     @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        return jdbcClient.getPrimaryKeyColumns(session, (JdbcTableHandle) tableHandle);
+    }
+
+    @Override
     public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
         ImmutableMap.Builder<SchemaTableName, List<ColumnMetadata>> columns = ImmutableMap.builder();
@@ -667,6 +673,15 @@ public class DefaultJdbcMetadata
         JdbcColumnHandle columnHandle = (JdbcColumnHandle) column;
         verify(!tableHandle.isSynthetic(), "Not a table reference: %s", tableHandle);
         jdbcClient.setColumnComment(session, tableHandle, columnHandle, comment);
+    }
+
+    @Override
+    public Map<Integer, Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle table, ColumnHandle column, int n)
+    {
+        JdbcTableHandle tableHandle = (JdbcTableHandle) table;
+        JdbcColumnHandle columnHandle = (JdbcColumnHandle) column;
+        verify(!tableHandle.isSynthetic(), "Not a table reference: %s", tableHandle);
+        return jdbcClient.getNthPercentile(session, tableHandle, columnHandle, n);
     }
 
     @Override

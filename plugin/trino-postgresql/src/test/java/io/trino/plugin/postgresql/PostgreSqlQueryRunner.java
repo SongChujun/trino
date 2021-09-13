@@ -87,7 +87,7 @@ public final class PostgreSqlQueryRunner
 
         DistributedQueryRunner queryRunner = createPostgreSqlQueryRunner(
                 new TestingPostgreSqlServer(),
-                ImmutableMap.of("http-server.http.port", "8080"),
+                ImmutableMap.of("http-server.http.port", "8081"),
                 ImmutableMap.of(),
                 TpchTable.getTables());
 

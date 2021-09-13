@@ -13,6 +13,8 @@
  */
 package io.trino.plugin.jdbc;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
@@ -53,6 +55,11 @@ public interface JdbcClient
     Optional<JdbcTableHandle> getTableHandle(ConnectorSession session, SchemaTableName schemaTableName);
 
     List<JdbcColumnHandle> getColumns(ConnectorSession session, JdbcTableHandle tableHandle);
+
+    default List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        return ImmutableList.of();
+    }
 
     Optional<ColumnMapping> toColumnMapping(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle);
 
@@ -115,6 +122,11 @@ public interface JdbcClient
     default void setColumnComment(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, Optional<String> comment)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting column comments");
+    }
+
+    default Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    {
+        return ImmutableMap.of();
     }
 
     void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column);

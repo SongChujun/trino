@@ -13,6 +13,8 @@
  */
 package io.trino.metadata;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.Session;
 import io.trino.connector.CatalogName;
@@ -151,12 +153,22 @@ public interface Metadata
      */
     Map<String, ColumnHandle> getColumnHandles(Session session, TableHandle tableHandle);
 
+    default List<String> getPrimaryKeyColumns(Session session, TableHandle tableHandle)
+    {
+        return ImmutableList.of();
+    }
+
     /**
      * Gets the metadata for the specified table column.
      *
      * @throws RuntimeException if table or column handles are no longer valid
      */
     ColumnMetadata getColumnMetadata(Session session, TableHandle tableHandle, ColumnHandle columnHandle);
+
+    default Map<Integer, Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle, int n)
+    {
+        return ImmutableMap.of();
+    }
 
     /**
      * Gets the columns metadata for all tables that match the specified prefix.

@@ -1066,7 +1066,7 @@ public final class SystemSessionProperties
         return session.getSystemProperty(ALLOW_PUSHDOWN_INTO_CONNECTORS, Boolean.class);
     }
 
-    public static boolean isHybridEnabled(Session session)
+    public static boolean isHybridJoinEnabled(Session session)
     {
         return session.getSystemProperty(USE_HYBRID_JOIN, Boolean.class);
     }
