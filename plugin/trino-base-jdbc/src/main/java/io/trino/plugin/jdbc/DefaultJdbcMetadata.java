@@ -33,6 +33,7 @@ import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.ConnectorTableProperties;
 import io.trino.spi.connector.ConnectorTableSchema;
+import io.trino.spi.connector.ConstantColumnHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.JoinApplicationResult;
@@ -49,6 +50,7 @@ import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.connector.TableScanRedirectApplicationResult;
 import io.trino.spi.connector.TopNApplicationResult;
 import io.trino.spi.expression.ConnectorExpression;
+import io.trino.spi.expression.Constant;
 import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
@@ -351,8 +353,20 @@ public class DefaultJdbcMetadata
 
         ImmutableList.Builder<JdbcJoinCondition> jdbcJoinConditions = ImmutableList.builder();
         for (JoinCondition joinCondition : joinConditions) {
-            Optional<JdbcColumnHandle> leftColumn = getVariableColumnHandle(leftAssignments, joinCondition.getLeftExpression());
-            Optional<JdbcColumnHandle> rightColumn = getVariableColumnHandle(rightAssignments, joinCondition.getRightExpression());
+            ConnectorExpression leftExpression = joinCondition.getLeftExpression();
+            ConnectorExpression rightExpression = joinCondition.getRightExpression();
+            Optional<ColumnHandle> leftColumn;
+            Optional<ColumnHandle> rightColumn;
+            if (leftExpression instanceof Variable) {
+                leftColumn = getVariableColumnHandle(leftAssignments, leftExpression);
+            } else {
+                leftColumn = getConstantColumnHandle(leftExpression);
+            }
+            if (rightExpression instanceof Variable) {
+                rightColumn = getVariableColumnHandle(rightAssignments, rightExpression);
+            } else {
+                rightColumn = getConstantColumnHandle(rightExpression);
+            }
             if (leftColumn.isEmpty() || rightColumn.isEmpty()) {
                 return Optional.empty();
             }
@@ -396,7 +410,7 @@ public class DefaultJdbcMetadata
                 false));
     }
 
-    private static Optional<JdbcColumnHandle> getVariableColumnHandle(Map<String, ColumnHandle> assignments, ConnectorExpression expression)
+    private static Optional<ColumnHandle> getVariableColumnHandle(Map<String, ColumnHandle> assignments, ConnectorExpression expression)
     {
         requireNonNull(assignments, "assignments is null");
         requireNonNull(expression, "expression is null");
@@ -407,7 +421,16 @@ public class DefaultJdbcMetadata
         String name = ((Variable) expression).getName();
         ColumnHandle columnHandle = assignments.get(name);
         verifyNotNull(columnHandle, "No assignment for %s", name);
-        return Optional.of(((JdbcColumnHandle) columnHandle));
+        return Optional.of(columnHandle);
+    }
+
+    private static Optional<ColumnHandle> getConstantColumnHandle(ConnectorExpression expression)
+    {
+        if (!(expression instanceof Constant)) {
+            return Optional.empty();
+        }
+        Constant constExpression = (Constant) expression;
+        return Optional.of(new ConstantColumnHandle(constExpression.getValue(), constExpression.getType()));
     }
 
     private static PreparedQuery asPreparedQuery(JdbcTableHandle tableHandle)

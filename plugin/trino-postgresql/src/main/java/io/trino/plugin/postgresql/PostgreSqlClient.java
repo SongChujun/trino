@@ -779,9 +779,18 @@ public class PostgreSqlClient
     @Override
     protected boolean isSupportedJoinCondition(JdbcJoinCondition joinCondition)
     {
-        boolean isVarchar = Stream.of(joinCondition.getLeftColumn(), joinCondition.getRightColumn())
-                .map(JdbcColumnHandle::getColumnType)
-                .anyMatch(type -> type instanceof CharType || type instanceof VarcharType);
+        boolean isVarchar = false;
+        if (joinCondition.getLeftColumn() instanceof JdbcColumnHandle)
+        {
+            JdbcColumnHandle leftHandle = (JdbcColumnHandle) joinCondition.getLeftColumn();
+            isVarchar = (leftHandle.getColumnType() instanceof  CharType || leftHandle.getColumnType() instanceof  VarcharType);
+        }
+
+        if (joinCondition.getRightColumn() instanceof JdbcColumnHandle)
+        {
+            JdbcColumnHandle rightHandle = (JdbcColumnHandle) joinCondition.getRightColumn();
+            isVarchar = (rightHandle.getColumnType() instanceof  CharType || rightHandle.getColumnType() instanceof  VarcharType) | isVarchar;
+        }
         if (isVarchar) {
             // PostgreSQL is case sensitive by default, but orders varchars differently
             JoinCondition.Operator operator = joinCondition.getOperator();

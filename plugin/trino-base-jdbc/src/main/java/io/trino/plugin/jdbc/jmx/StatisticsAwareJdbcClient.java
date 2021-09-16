@@ -13,7 +13,6 @@
  */
 package io.trino.plugin.jdbc.jmx;
 
-import com.google.common.collect.ImmutableMap;
 import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.JdbcColumnHandle;

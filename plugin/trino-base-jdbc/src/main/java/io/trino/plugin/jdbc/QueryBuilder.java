@@ -20,11 +20,13 @@ import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.ConstantColumnHandle;
 import io.trino.spi.connector.JoinType;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
+import io.trino.spi.type.IntegerType;
 import io.trino.spi.type.Type;
 
 import java.sql.Connection;
@@ -123,17 +125,50 @@ public class QueryBuilder
                 formatJoinType(joinType),
                 rightSource.getQuery(),
                 joinConditions.stream()
-                        .map(condition -> format(
-                                "l.%s %s r.%s",
-                                client.quoted(condition.getLeftColumn().getColumnName()),
-                                condition.getOperator().getValue(),
-                                client.quoted(condition.getRightColumn().getColumnName())))
+                        .map(this::formatCondition)
                         .collect(joining(" AND ")));
         List<QueryParameter> parameters = ImmutableList.<QueryParameter>builder()
                 .addAll(leftSource.getParameters())
                 .addAll(rightSource.getParameters())
                 .build();
         return new PreparedQuery(query, parameters);
+    }
+
+    private String formatCondition(JdbcJoinCondition condition)
+    {
+        ColumnHandle leftColumn = condition.getLeftColumn();
+        ColumnHandle rightColumn = condition.getRightColumn();
+        if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof  JdbcColumnHandle)) {
+            JdbcColumnHandle jdbcLeftColumn = (JdbcColumnHandle) leftColumn;
+            JdbcColumnHandle jdbcRightColumn = (JdbcColumnHandle) rightColumn;
+            return format(
+                    "l.%s %s r.%s",
+                    client.quoted(jdbcLeftColumn.getColumnName()),
+                    condition.getOperator().getValue(),
+                    client.quoted(jdbcRightColumn.getColumnName()));
+        } else if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof ConstantColumnHandle)) {
+            JdbcColumnHandle jdbcLeftColumn = (JdbcColumnHandle) leftColumn;
+            ConstantColumnHandle constRightColumn = (ConstantColumnHandle) rightColumn;
+            verify(constRightColumn.getType() instanceof IntegerType);
+            return format(
+                    "l.%s %s %d",
+                    client.quoted(jdbcLeftColumn.getColumnName()),
+                    condition.getOperator().getValue(),
+                    (long) constRightColumn.getValue());
+        } else if ((leftColumn instanceof ConstantColumnHandle) && (rightColumn instanceof JdbcColumnHandle))
+        {
+            ConstantColumnHandle constLeftColumn = (ConstantColumnHandle) leftColumn;
+            JdbcColumnHandle jdbcRightColumn = (JdbcColumnHandle) rightColumn;
+            verify(constLeftColumn.getType() instanceof IntegerType);
+            return format(
+                    "%d %s r.%s",
+                    (long) constLeftColumn.getValue(),
+                    condition.getOperator().getValue(),
+                    client.quoted(jdbcRightColumn.getColumnName()));
+        } else {
+            verify(false);
+        }
+        return "";
     }
 
     protected String formatAssignments(String relationAlias, Map<JdbcColumnHandle, String> assignments)

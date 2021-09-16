@@ -13,24 +13,25 @@
  */
 package io.trino.plugin.jdbc;
 
+import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.JoinCondition.Operator;
 
 import static java.util.Objects.requireNonNull;
 
 public class JdbcJoinCondition
 {
-    private final JdbcColumnHandle leftColumn;
+    private final ColumnHandle leftColumn;
     private final Operator operator;
-    private final JdbcColumnHandle rightColumn;
+    private final ColumnHandle rightColumn;
 
-    public JdbcJoinCondition(JdbcColumnHandle leftColumn, Operator operator, JdbcColumnHandle rightColumn)
+    public JdbcJoinCondition(ColumnHandle leftColumn, Operator operator, ColumnHandle rightColumn)
     {
         this.leftColumn = requireNonNull(leftColumn, "leftColumn is null");
         this.operator = requireNonNull(operator, "operator is null");
         this.rightColumn = requireNonNull(rightColumn, "rightColumn is null");
     }
 
-    public JdbcColumnHandle getLeftColumn()
+    public ColumnHandle getLeftColumn()
     {
         return leftColumn;
     }
@@ -40,7 +41,7 @@ public class JdbcJoinCondition
         return operator;
     }
 
-    public JdbcColumnHandle getRightColumn()
+    public ColumnHandle getRightColumn()
     {
         return rightColumn;
     }

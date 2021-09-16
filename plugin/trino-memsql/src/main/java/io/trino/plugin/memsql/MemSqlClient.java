@@ -382,8 +382,15 @@ public class MemSqlClient
             return false;
         }
 
+        if (!(joinCondition.getLeftColumn() instanceof JdbcColumnHandle) || !(joinCondition.getRightColumn() instanceof JdbcColumnHandle))
+        {
+            return false;
+        }
+
+        JdbcColumnHandle leftHandle = (JdbcColumnHandle) joinCondition.getLeftColumn();
+        JdbcColumnHandle rightHandle = (JdbcColumnHandle) joinCondition.getRightColumn();
         // Remote database can be case insensitive.
-        return Stream.of(joinCondition.getLeftColumn(), joinCondition.getRightColumn())
+        return Stream.of(leftHandle, rightHandle)
                 .map(JdbcColumnHandle::getColumnType)
                 .noneMatch(type -> type instanceof CharType || type instanceof VarcharType);
     }
