@@ -703,7 +703,6 @@ public class DefaultJdbcMetadata
     {
         JdbcTableHandle tableHandle = (JdbcTableHandle) table;
         JdbcColumnHandle columnHandle = (JdbcColumnHandle) column;
-        verify(!tableHandle.isSynthetic(), "Not a table reference: %s", tableHandle);
         return jdbcClient.getNthPercentile(session, tableHandle, columnHandle, n);
     }
 

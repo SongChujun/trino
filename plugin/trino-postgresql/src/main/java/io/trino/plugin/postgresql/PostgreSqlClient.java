@@ -930,7 +930,7 @@ public class PostgreSqlClient
                 quoted(column.getColumnName()),
                 n,
                 quoted(column.getColumnName()),
-                quoted(handle.asPlainTable().getRemoteTableName()));
+                quoted(handle.getRequiredNamedRelation().getRemoteTableName()));
 
         ImmutableMap.Builder<Integer, Object> res = new ImmutableMap.Builder<>();
 
