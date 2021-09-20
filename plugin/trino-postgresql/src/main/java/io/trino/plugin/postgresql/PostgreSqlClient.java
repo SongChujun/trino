@@ -332,9 +332,9 @@ public class PostgreSqlClient
     @Override
     public List<JdbcColumnHandle> getColumns(ConnectorSession session, JdbcTableHandle tableHandle)
     {
-        if (tableHandle.getColumns().isPresent()) {
-            return tableHandle.getColumns().get();
-        }
+//        if (tableHandle.getColumns().isPresent()) {
+//            return tableHandle.getColumns().get();
+//        }
         checkArgument(tableHandle.isNamedRelation(), "Cannot get columns for %s", tableHandle);
         SchemaTableName schemaTableName = tableHandle.getRequiredNamedRelation().getSchemaTableName();
 

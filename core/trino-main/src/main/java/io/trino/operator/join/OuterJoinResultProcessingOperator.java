@@ -20,17 +20,22 @@ import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
+import io.trino.spi.block.IntArrayBlock;
+import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Stack;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Verify.verify;
 import static java.util.Objects.requireNonNull;
 
 public class OuterJoinResultProcessingOperator
@@ -42,6 +47,7 @@ public class OuterJoinResultProcessingOperator
     private final Stack<Page> pageBuffer;
     private final List<Symbol> leftSymbols;
     private final List<Symbol> rightSymbols;
+    private final List<Symbol> leftPrimaryKeySymbols;
     private final List<Symbol> leftJoinSymbols;
     private final List<Symbol> rightJoinSymbols;
     private final List<Symbol> outputSymbols;
@@ -49,6 +55,7 @@ public class OuterJoinResultProcessingOperator
     private final HashBuildAndProbeTable hashTable;
     private boolean isFinished;
     private final int partitioningIndex;
+    private Set<String> duplicateSet;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -56,6 +63,7 @@ public class OuterJoinResultProcessingOperator
             boolean isInnerJoin,
             List<Symbol> leftSymbols,
             List<Symbol> rightSymbols,
+            List<Symbol> leftPrimaryKeySymbols,
             List<Symbol> leftJoinSymbols,
             List<Symbol> rightJoinSymbols,
             List<Symbol> outputSymbols,
@@ -69,11 +77,13 @@ public class OuterJoinResultProcessingOperator
         this.partitioningIndex = partitioningIndex;
         this.leftSymbols = leftSymbols;
         this.rightSymbols = rightSymbols;
+        this.leftPrimaryKeySymbols = leftPrimaryKeySymbols;
         this.leftJoinSymbols = leftJoinSymbols;
         this.rightJoinSymbols = rightJoinSymbols;
         this.outputSymbols = outputSymbols;
         this.pageBuffer = new Stack<>();
         this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
+        this.duplicateSet = new HashSet<>(10000);
     }
 
     @Override
@@ -111,7 +121,9 @@ public class OuterJoinResultProcessingOperator
     {
         //nullIndicators encoding: 0 stands for null, t, 1 stands for s, null, 2 stands for s,t ,3 for null,null
         int[] nullIndicators = new int[page.getPositionCount()];
+        boolean[] duplicateIndicators = new boolean[page.getPositionCount()];
         Map<Symbol, Integer> layout = makeLayout(leftSymbols, rightSymbols);
+        List<Integer> primaryKeyIdxs = layout.entrySet().stream().filter(entry -> leftPrimaryKeySymbols.contains(entry.getKey())).map(Map.Entry::getValue).collect(Collectors.toList());
         for (int i = 0; i < page.getPositionCount(); i++) {
             boolean leftNull = false;
             boolean rightNull = false;
@@ -127,6 +139,14 @@ public class OuterJoinResultProcessingOperator
                     break;
                 }
             }
+            String primaryKeyStr = tupleToString(page, primaryKeyIdxs, i);
+            if (duplicateSet.contains(primaryKeyStr)) {
+                duplicateIndicators[i] = true;
+            }
+            else {
+                duplicateSet.add(primaryKeyStr);
+                duplicateIndicators[i] = false;
+            }
             if ((leftNull) && (!rightNull)) {
                 nullIndicators[i] = 0;
             }
@@ -140,11 +160,32 @@ public class OuterJoinResultProcessingOperator
                 nullIndicators[i] = 3;
             }
         }
-        int[] leftRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2)).toArray();
+        int[] leftRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2) && !duplicateIndicators[idx]).toArray();
         int[] outputRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 2)).toArray();
         Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
         Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
+    }
+
+    private String tupleToString(Page page, List<Integer> channels, int row)
+    {
+        StringBuilder res = new StringBuilder();
+        for (Integer channel : channels) {
+            if (page.getBlock(channel) instanceof LongArrayBlock) {
+                LongArrayBlock block = (LongArrayBlock) page.getBlock(channel);
+                res.append(block.getLong(row, 0));
+                res.append('*');
+            }
+            else if (page.getBlock(channel) instanceof IntArrayBlock) {
+                IntArrayBlock block = (IntArrayBlock) page.getBlock(channel);
+                res.append(block.getInt(row, 0));
+                res.append('*');
+            }
+            else {
+                verify(false);
+            }
+        }
+        return res.toString();
     }
 
     private ImmutableMap<Symbol, Integer> makeLayout(List<Symbol> leftSymbols, List<Symbol> rightSymbols)
@@ -195,6 +236,7 @@ public class OuterJoinResultProcessingOperator
         private final boolean isInnerJoin;
         private final List<Symbol> leftSymbols;
         private final List<Symbol> rightSymbols;
+        private final List<Symbol> leftPrimaryKeySymbols;
         private final List<Symbol> leftJoinSymbols;
         private final List<Symbol> rightJoinSymbols;
         private final List<Symbol> outputSymbols;
@@ -207,6 +249,7 @@ public class OuterJoinResultProcessingOperator
                 boolean isInnerJoin,
                 List<Symbol> leftSymbols,
                 List<Symbol> rightSymbols,
+                List<Symbol> leftPrimaryKeySymbols,
                 List<Symbol> leftJoinSymbols,
                 List<Symbol> rightJoinSymbols,
                 List<Symbol> outputSymbols)
@@ -216,6 +259,7 @@ public class OuterJoinResultProcessingOperator
             this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
             this.isInnerJoin = isInnerJoin;
             this.leftSymbols = leftSymbols;
+            this.leftPrimaryKeySymbols = leftPrimaryKeySymbols;
             this.rightSymbols = rightSymbols;
             this.leftJoinSymbols = leftJoinSymbols;
             this.rightJoinSymbols = rightJoinSymbols;
@@ -230,7 +274,7 @@ public class OuterJoinResultProcessingOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
 
             return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin,
-                    leftSymbols, rightSymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex), localPartitioningIndex);
+                    leftSymbols, rightSymbols, leftPrimaryKeySymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex), localPartitioningIndex);
         }
 
         @Override

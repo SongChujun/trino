@@ -359,12 +359,14 @@ public class DefaultJdbcMetadata
             Optional<ColumnHandle> rightColumn;
             if (leftExpression instanceof Variable) {
                 leftColumn = getVariableColumnHandle(leftAssignments, leftExpression);
-            } else {
+            }
+            else {
                 leftColumn = getConstantColumnHandle(leftExpression);
             }
             if (rightExpression instanceof Variable) {
                 rightColumn = getVariableColumnHandle(rightAssignments, rightExpression);
-            } else {
+            }
+            else {
                 rightColumn = getConstantColumnHandle(rightExpression);
             }
             if (leftColumn.isEmpty() || rightColumn.isEmpty()) {

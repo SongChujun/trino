@@ -2743,7 +2743,7 @@ public class LocalExecutionPlanner
 
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
                     context.getNextOperatorId(), node.getId(), joinBridge, true,
-                    node.getOuterLeftSymbols(), node.getOuterRightSymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
+                    node.getOuterLeftSymbols(), node.getOuterRightSymbols(), node.getProbePrimaryKeySymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();

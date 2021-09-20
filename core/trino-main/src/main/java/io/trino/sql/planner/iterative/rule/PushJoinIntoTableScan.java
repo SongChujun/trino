@@ -23,8 +23,10 @@ import io.trino.matching.Captures;
 import io.trino.matching.Pattern;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.TableHandle;
+import io.trino.metadata.TableSchema;
 import io.trino.spi.connector.BasicRelationStatistics;
 import io.trino.spi.connector.ColumnHandle;
+import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.JoinApplicationResult;
 import io.trino.spi.connector.JoinCondition;
 import io.trino.spi.connector.JoinStatistics;
@@ -130,27 +132,83 @@ public class PushJoinIntoTableScan
         ComparisonExpression outerFilterPredicate = null;
         Symbol filterSymbol = null;
         LongLiteral delimiter = null;
+        List<Symbol> leftPrimaryKeySymbols = null;
 
         if (isHybridJoinEnabled(context.getSession())) {
-            Map<String, ColumnHandle> leftColumnHandles = metadata.getColumnHandles(context.getSession(), left.getTable());
-            Map<String, ColumnHandle> rightColumnHandles = metadata.getColumnHandles(context.getSession(), right.getTable());
             List<String> leftPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), left.getTable());
             if (!leftPrimaryKeyColumns.isEmpty()) {
                 List<String> rightPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), right.getTable());
                 if (!rightPrimaryKeyColumns.isEmpty()) {
+                    Map<String, ColumnHandle> leftColumnHandles = metadata.getColumnHandles(context.getSession(), left.getTable());
+                    Map<String, ColumnHandle> rightColumnHandles = metadata.getColumnHandles(context.getSession(), right.getTable());
+
                     Optional<ColumnHandle> firstRightPrimaryKeyColumnHandle = rightColumnHandles.entrySet().stream().filter(cl -> cl.getKey().equals(rightPrimaryKeyColumns.get(0))).map(Map.Entry::getValue).findFirst();
-                    if (firstRightPrimaryKeyColumnHandle.isPresent()) {
-                        int ntile = 10;
-                        Map<Integer, Object> nthPercentile;
-                        nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get(), ntile);
-                        filterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(firstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
-                        Object delimiterVal = nthPercentile.get(ntile / 2);
-                        if ((delimiterVal instanceof Integer)) {
-                            useHybridJoin = true;
-                            delimiter = new LongLiteral(String.valueOf(nthPercentile.get(ntile / 2)));
-                            buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiter, filterSymbol.toSymbolReference());
-                            outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiter, filterSymbol.toSymbolReference());
+                    if (firstRightPrimaryKeyColumnHandle.isEmpty()) {
+                        TableSchema rightTableSchema = metadata.getTableSchema(context.getSession(), right.getTable());
+                        TableHandle rightTableHandle = metadata.getTableHandle(context.getSession(), rightTableSchema.getQualifiedName()).get();
+                        Map<String, ColumnHandle> rightColumnHandlesAll = metadata.getColumnHandles(context.getSession(), rightTableHandle);
+                        Map.Entry<String, ColumnHandle> firstRightPrimaryKeyEntry = rightColumnHandlesAll.entrySet().stream().filter(ch -> rightPrimaryKeyColumns.get(0).equals(ch.getKey())).findFirst().get();
+                        ImmutableMap.Builder<Symbol, ColumnHandle> newRightAssignmentsBuilder = new ImmutableMap.Builder<>();
+                        newRightAssignmentsBuilder.putAll(right.getAssignments());
+                        ColumnMetadata columnMetadata = metadata.getColumnMetadata(context.getSession(), rightTableHandle, firstRightPrimaryKeyEntry.getValue());
+                        Symbol newSymbol = context.getSymbolAllocator().newSymbol(firstRightPrimaryKeyEntry.getKey(), columnMetadata.getType());
+                        newRightAssignmentsBuilder.put(newSymbol, firstRightPrimaryKeyEntry.getValue());
+                        Map<Symbol, ColumnHandle> newRightAssignments = newRightAssignmentsBuilder.build();
+                        right = new TableScanNode(
+                                context.getIdAllocator().getNextId(),
+                                rightTableHandle,
+                                ImmutableList.copyOf(newRightAssignments.keySet()),
+                                newRightAssignments,
+                                right.getEnforcedConstraint(),
+                                right.getStatistics(),
+                                false,
+                                right.getUseConnectorNodePartitioning());
+                        firstRightPrimaryKeyColumnHandle = rightColumnHandlesAll.entrySet().stream().filter(cl -> cl.getKey().equals(rightPrimaryKeyColumns.get(0))).map(Map.Entry::getValue).findFirst();
+                    }
+
+                    List<String> leftNotIncludedPrimaryKeyStrs = leftPrimaryKeyColumns.stream().filter(str -> !leftColumnHandles.containsKey(str)).collect(toImmutableList());
+                    List<ColumnHandle> leftPrimaryKeyColumnHandles;
+                    if (!leftNotIncludedPrimaryKeyStrs.isEmpty()) {
+                        TableSchema leftTableSchema = metadata.getTableSchema(context.getSession(), left.getTable());
+                        TableHandle leftTableHandle = metadata.getTableHandle(context.getSession(), leftTableSchema.getQualifiedName()).get();
+                        Map<String, ColumnHandle> leftColumnHandlesAll = metadata.getColumnHandles(context.getSession(), leftTableHandle);
+
+                        Map<String, ColumnHandle> leftNotIncludedPrimaryKeys = leftColumnHandlesAll.entrySet().stream().filter(ch -> leftNotIncludedPrimaryKeyStrs.contains(ch.getKey())).collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
+                        ImmutableMap.Builder<Symbol, ColumnHandle> newLeftAssignmentsBuilder = new ImmutableMap.Builder<>();
+                        newLeftAssignmentsBuilder.putAll(left.getAssignments());
+                        for (Map.Entry<String, ColumnHandle> entry : leftNotIncludedPrimaryKeys.entrySet()) {
+                            ColumnMetadata columnMetadata = metadata.getColumnMetadata(context.getSession(), leftTableHandle, entry.getValue());
+                            Symbol newSymbol = context.getSymbolAllocator().newSymbol(entry.getKey(), columnMetadata.getType());
+                            newLeftAssignmentsBuilder.put(newSymbol, entry.getValue());
                         }
+                        Map<Symbol, ColumnHandle> newLeftAssignments = newLeftAssignmentsBuilder.build();
+                        left = new TableScanNode(
+                                context.getIdAllocator().getNextId(),
+                                leftTableHandle,
+                                ImmutableList.copyOf(newLeftAssignments.keySet()),
+                                newLeftAssignments,
+                                left.getEnforcedConstraint(),
+                                left.getStatistics(),
+                                false,
+                                left.getUseConnectorNodePartitioning());
+                        leftPrimaryKeyColumnHandles = leftColumnHandlesAll.entrySet().stream().filter(cl -> leftPrimaryKeyColumns.contains(cl.getKey())).map(Map.Entry::getValue).collect(toImmutableList());
+                    }
+                    else {
+                        leftPrimaryKeyColumnHandles = leftColumnHandles.entrySet().stream().filter(cl -> leftPrimaryKeyColumns.contains(cl.getKey())).map(Map.Entry::getValue).collect(toImmutableList());
+                    }
+                    leftPrimaryKeySymbols = left.getAssignments().entrySet().stream().filter(a -> leftPrimaryKeyColumnHandles.contains(a.getValue())).map(Map.Entry::getKey).collect(toImmutableList());
+
+                    int ntile = 10;
+                    Map<Integer, Object> nthPercentile;
+                    nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get(), ntile);
+                    Optional<ColumnHandle> finalFirstRightPrimaryKeyColumnHandle = firstRightPrimaryKeyColumnHandle;
+                    filterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(finalFirstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
+                    Object delimiterVal = nthPercentile.get(ntile / 2);
+                    if ((delimiterVal instanceof Integer)) {
+                        useHybridJoin = true;
+                        delimiter = new LongLiteral(String.valueOf(nthPercentile.get(ntile / 2)));
+                        buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiter, filterSymbol.toSymbolReference());
+                        outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiter, filterSymbol.toSymbolReference());
                     }
                 }
             }
@@ -158,7 +216,7 @@ public class PushJoinIntoTableScan
 
         Expression effectiveFilter = getEffectiveFilter(joinNode);
         FilterSplitResult filterSplitResult = splitFilter(effectiveFilter, left.getOutputSymbols(), right.getOutputSymbols(), context);
-        JoinCondition filterCondition = null;
+        JoinCondition filterCondition;
         List<JoinCondition> joinConditions = filterSplitResult.getPushableConditions();
         if (useHybridJoin) {
             filterCondition = new JoinCondition(
@@ -256,6 +314,7 @@ public class PushJoinIntoTableScan
                             joinNode.getCriteria(),
                             joinNode.getRightOutputSymbols(),
                             joinNode.getLeftOutputSymbols(),
+                            leftPrimaryKeySymbols,
                             // may hard code here!
                             left.getAssignments().keySet().stream().collect(toImmutableList()),
                             right.getAssignments().keySet().stream().collect(toImmutableList()),

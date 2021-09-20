@@ -30,11 +30,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.sql.planner.plan.JoinNode.DistributionType.REPLICATED;
 import static io.trino.sql.planner.plan.JoinNode.Type.FULL;
 import static io.trino.sql.planner.plan.JoinNode.Type.INNER;
-import static io.trino.sql.planner.plan.JoinNode.Type.LEFT;
 import static io.trino.sql.planner.plan.JoinNode.Type.RIGHT;
 import static java.util.Objects.requireNonNull;
 
@@ -48,6 +46,7 @@ public class AdaptiveJoinNode
     private final List<JoinNode.EquiJoinClause> criteria;
     private final List<Symbol> buildOutputSymbols;
     private final List<Symbol> probeOutputSymbols;
+    private final List<Symbol> probePrimaryKeySymbols;
     private final List<Symbol> outerLeftSymbols;
     private final List<Symbol> outerRightSymbols;
     private final boolean maySkipOutputDuplicates;
@@ -70,6 +69,7 @@ public class AdaptiveJoinNode
             @JsonProperty("criteria") List<JoinNode.EquiJoinClause> criteria,
             @JsonProperty("buildOutputSymbols") List<Symbol> buildOutputSymbols,
             @JsonProperty("probeOutputSymbols") List<Symbol> probeOutputSymbols,
+            @JsonProperty("probePrimaryKeySymbols") List<Symbol> probePrimaryKeySymbols,
             @JsonProperty("outerLeftSymbols") List<Symbol> outerLeftSymbols,
             @JsonProperty("outerRightSymbols") List<Symbol> outerRightSymbols,
             @JsonProperty("maySkipOutputDuplicates") boolean maySkipOutputDuplicates,
@@ -88,6 +88,7 @@ public class AdaptiveJoinNode
         requireNonNull(criteria, "criteria is null");
         requireNonNull(buildOutputSymbols, "leftOutputSymbols is null");
         requireNonNull(probeOutputSymbols, "probeOutputSymbols is null");
+        requireNonNull(probePrimaryKeySymbols, "probePrimaryKeySymbols is null");
         requireNonNull(outerLeftSymbols, "rightOutputSymbols is null");
         requireNonNull(outerRightSymbols, "rightOutputSymbols is null");
         requireNonNull(filter, "filter is null");
@@ -102,6 +103,7 @@ public class AdaptiveJoinNode
         this.criteria = ImmutableList.copyOf(criteria);
         this.buildOutputSymbols = ImmutableList.copyOf(buildOutputSymbols);
         this.probeOutputSymbols = ImmutableList.copyOf(probeOutputSymbols);
+        this.probePrimaryKeySymbols = ImmutableList.copyOf(probePrimaryKeySymbols);
         this.outerLeftSymbols = ImmutableList.copyOf(outerLeftSymbols);
         this.outerRightSymbols = ImmutableList.copyOf(outerRightSymbols);
         this.maySkipOutputDuplicates = maySkipOutputDuplicates;
@@ -141,33 +143,6 @@ public class AdaptiveJoinNode
         }
     }
 
-    private static JoinNode.Type flipType(JoinNode.Type type)
-    {
-        switch (type) {
-            case INNER:
-                return INNER;
-            case FULL:
-                return FULL;
-            case LEFT:
-                return RIGHT;
-            case RIGHT:
-                return LEFT;
-        }
-        throw new IllegalStateException("No inverse defined for join type: " + type);
-    }
-
-    private static List<JoinNode.EquiJoinClause> flipJoinCriteria(List<JoinNode.EquiJoinClause> joinCriteria)
-    {
-        return joinCriteria.stream()
-                .map(JoinNode.EquiJoinClause::flip)
-                .collect(toImmutableList());
-    }
-
-    public AdaptiveJoinNode flipChildren()
-    {
-        throw new UnsupportedOperationException();
-    }
-
     @JsonProperty("type")
     public JoinNode.Type getType()
     {
@@ -196,6 +171,12 @@ public class AdaptiveJoinNode
     public List<Symbol> getProbeOutputSymbols()
     {
         return probeOutputSymbols;
+    }
+
+    @JsonProperty("probePrimaryKeySymbols")
+    public List<Symbol> getProbePrimaryKeySymbols()
+    {
+        return probePrimaryKeySymbols;
     }
 
     @JsonProperty("buildOutputSymbols")
@@ -290,26 +271,11 @@ public class AdaptiveJoinNode
     {
         checkArgument(newChildren.size() == 2, "expected newChildren to contain 2 nodes");
         return new AdaptiveJoinNode(getId(), type, newChildren.get(0), newChildren.get(1), criteria,
-                buildOutputSymbols, probeOutputSymbols, outerLeftSymbols, outerRightSymbols, maySkipOutputDuplicates,
+                buildOutputSymbols, probeOutputSymbols, probePrimaryKeySymbols, outerLeftSymbols, outerRightSymbols, maySkipOutputDuplicates,
                 filter, buildHashSymbol, outerHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public AdaptiveJoinNode withDistributionType(JoinNode.DistributionType distributionType)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public AdaptiveJoinNode withSpillable(boolean spillable)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public AdaptiveJoinNode withMaySkipOutputDuplicates()
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    public AdaptiveJoinNode withReorderJoinStatsAndCost(PlanNodeStatsAndCostSummary statsAndCost)
     {
         throw new UnsupportedOperationException();
     }

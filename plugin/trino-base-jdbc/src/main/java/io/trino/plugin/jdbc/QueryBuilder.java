@@ -138,7 +138,7 @@ public class QueryBuilder
     {
         ColumnHandle leftColumn = condition.getLeftColumn();
         ColumnHandle rightColumn = condition.getRightColumn();
-        if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof  JdbcColumnHandle)) {
+        if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof JdbcColumnHandle)) {
             JdbcColumnHandle jdbcLeftColumn = (JdbcColumnHandle) leftColumn;
             JdbcColumnHandle jdbcRightColumn = (JdbcColumnHandle) rightColumn;
             return format(
@@ -146,7 +146,8 @@ public class QueryBuilder
                     client.quoted(jdbcLeftColumn.getColumnName()),
                     condition.getOperator().getValue(),
                     client.quoted(jdbcRightColumn.getColumnName()));
-        } else if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof ConstantColumnHandle)) {
+        }
+        else if ((leftColumn instanceof JdbcColumnHandle) && (rightColumn instanceof ConstantColumnHandle)) {
             JdbcColumnHandle jdbcLeftColumn = (JdbcColumnHandle) leftColumn;
             ConstantColumnHandle constRightColumn = (ConstantColumnHandle) rightColumn;
             verify(constRightColumn.getType() instanceof IntegerType);
@@ -155,8 +156,8 @@ public class QueryBuilder
                     client.quoted(jdbcLeftColumn.getColumnName()),
                     condition.getOperator().getValue(),
                     (long) constRightColumn.getValue());
-        } else if ((leftColumn instanceof ConstantColumnHandle) && (rightColumn instanceof JdbcColumnHandle))
-        {
+        }
+        else if ((leftColumn instanceof ConstantColumnHandle) && (rightColumn instanceof JdbcColumnHandle)) {
             ConstantColumnHandle constLeftColumn = (ConstantColumnHandle) leftColumn;
             JdbcColumnHandle jdbcRightColumn = (JdbcColumnHandle) rightColumn;
             verify(constLeftColumn.getType() instanceof IntegerType);

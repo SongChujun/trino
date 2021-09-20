@@ -904,6 +904,7 @@ public class AddExchanges
                     node.getCriteria(),
                     node.getBuildOutputSymbols(),
                     node.getProbeOutputSymbols(),
+                    node.getProbePrimaryKeySymbols(),
                     node.getOuterLeftSymbols(),
                     node.getOuterRightSymbols(),
                     node.isMaySkipOutputDuplicates(),

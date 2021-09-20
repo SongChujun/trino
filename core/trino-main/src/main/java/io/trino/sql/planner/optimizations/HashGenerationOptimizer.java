@@ -463,6 +463,7 @@ public class HashGenerationOptimizer
                             node.getCriteria(),
                             newBuildOutputSymbols,
                             newProbeOutputSymbols,
+                            node.getProbePrimaryKeySymbols(),
                             node.getOuterLeftSymbols(),
                             node.getOuterRightSymbols(),
                             node.isMaySkipOutputDuplicates(),
