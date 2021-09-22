@@ -921,25 +921,25 @@ public class PostgreSqlClient
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    public List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
     {
-        String sql = format("select nth, min(%s)\n" +
-                "from (select %s, ntile(%d) over (order by %s) as nth from %s)  as ntile_t\n" +
-                "group by nth order by nth",
+        String sql = format("select min(%s) as minV, max(%s) as maxV\n" +
+                "from %s",
                 quoted(column.getColumnName()),
-                quoted(column.getColumnName()),
-                n,
                 quoted(column.getColumnName()),
                 quoted(handle.getRequiredNamedRelation().getRemoteTableName()));
 
-        ImmutableMap.Builder<Integer, Object> res = new ImmutableMap.Builder<>();
+        ImmutableList.Builder<Object> res = new ImmutableList.Builder<>();
 
         try (Connection connection = connectionFactory.openConnection(session)) {
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 try (ResultSet resultSet = statement.executeQuery()) {
                     while (resultSet.next()) {
-                        res.put(resultSet.getInt("nth"), resultSet.getObject("min"));
+//                        res.put(resultSet.getInt("minV"), resultSet.getObject("min"));
+                        res.add(resultSet.getInt("minV"));
+                        res.add(resultSet.getInt("maxV"));
                     }
+
                 }
                 return res.build();
             }

@@ -612,14 +612,14 @@ public final class MetadataManager
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle, int n)
+    public List<Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle)
     {
         requireNonNull(tableHandle, "tableHandle is null");
         requireNonNull(columnHandle, "columnHandle is null");
 
         CatalogName catalogName = tableHandle.getCatalogName();
         ConnectorMetadata metadata = getMetadata(session, catalogName);
-        return metadata.getNthPercentile(session.toConnectorSession(catalogName), tableHandle.getConnectorHandle(), columnHandle, n);
+        return metadata.getNthPercentile(session.toConnectorSession(catalogName), tableHandle.getConnectorHandle(), columnHandle);
     }
 
     @Override

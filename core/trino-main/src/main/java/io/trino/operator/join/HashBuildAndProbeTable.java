@@ -91,6 +91,7 @@ public final class HashBuildAndProbeTable
             OptionalInt hashChannel,
             List<Integer> joinChannels,
             List<Type> buildOutputTypes, // from buildOutput channels
+            Optional<List<Integer>> buildOutputChannels,
             BlockTypeOperators blockTypeOperators,
             int expectedPositions,
             JoinProbe.JoinProbeFactory joinProbeFactory,
@@ -109,7 +110,7 @@ public final class HashBuildAndProbeTable
         }
         this.pagesHashStrategy = new SimplePagesHashStrategy(
                 types,
-                rangeList(buildOutputTypes.size()),
+                buildOutputChannels.orElse(rangeList(buildOutputTypes.size())),
                 channels,
                 joinChannels,
                 hashChannel,

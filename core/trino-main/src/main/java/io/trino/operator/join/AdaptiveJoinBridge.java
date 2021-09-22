@@ -32,6 +32,7 @@ public class AdaptiveJoinBridge
             List<Integer> buildJoinChannels,
             List<Integer> probeJoinChannels,
             List<Type> buildOutputTypes,
+            Optional<List<Integer>> buildOutputChannels,
             Optional<List<Integer>> probeOutputChannels,
             BlockTypeOperators blockTypeOperators,
             int expectedPositions,
@@ -44,7 +45,7 @@ public class AdaptiveJoinBridge
         JoinProbe.JoinProbeFactory buildJoinProbeFactory = new JoinProbe.JoinProbeFactory(probeOutputChannels.get().stream().mapToInt(i -> i).toArray(), probeJoinChannels, probeHashChannel);
         for (int i = 0; i < tableInstanceCount; i++) {
             tables[i] = new HashBuildAndProbeTable(buildTypes, buildHashChannel,
-                    buildJoinChannels, buildOutputTypes,
+                    buildJoinChannels, buildOutputTypes, buildOutputChannels,
                     blockTypeOperators, expectedPositions, buildJoinProbeFactory, joinType, outputSingleMatch, eagerCompact);
         }
     }

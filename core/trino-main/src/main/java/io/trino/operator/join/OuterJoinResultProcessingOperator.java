@@ -13,7 +13,6 @@
  */
 package io.trino.operator.join;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
@@ -22,15 +21,12 @@ import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
 import io.trino.spi.block.IntArrayBlock;
 import io.trino.spi.block.LongArrayBlock;
-import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -42,45 +38,36 @@ public class OuterJoinResultProcessingOperator
         implements Operator
 {
     private final OperatorContext operatorContext;
-    private final PlanNodeId planNodeId;
     private final boolean isInnerJoin;
     private final Stack<Page> pageBuffer;
-    private final List<Symbol> leftSymbols;
-    private final List<Symbol> rightSymbols;
-    private final List<Symbol> leftPrimaryKeySymbols;
-    private final List<Symbol> leftJoinSymbols;
-    private final List<Symbol> rightJoinSymbols;
-    private final List<Symbol> outputSymbols;
+    private final List<Integer> leftPrimaryKeyChannels;
+    private final List<Integer> leftJoinChannels;
+    private final List<Integer> rightJoinChannels;
+    private final List<Integer> outputChannels;
+    private final Integer leftColumnsSize;
     private final ListenableFuture<Boolean> hashBuildFinishedFuture;
     private final HashBuildAndProbeTable hashTable;
     private boolean isFinished;
-    private final int partitioningIndex;
     private Set<String> duplicateSet;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
-            PlanNodeId planNodeId,
             boolean isInnerJoin,
-            List<Symbol> leftSymbols,
-            List<Symbol> rightSymbols,
-            List<Symbol> leftPrimaryKeySymbols,
-            List<Symbol> leftJoinSymbols,
-            List<Symbol> rightJoinSymbols,
-            List<Symbol> outputSymbols,
-            HashBuildAndProbeTable table,
-            int partitioningIndex)
+            List<Integer> leftPrimaryKeyChannels,
+            List<Integer> leftJoinChannels,
+            List<Integer> rightJoinChannels,
+            List<Integer> outputChannels,
+            Integer leftColumnsSize,
+            HashBuildAndProbeTable table)
     {
         this.operatorContext = operatorContext;
-        this.planNodeId = planNodeId;
         this.isInnerJoin = isInnerJoin;
-        this.hashTable = table;
-        this.partitioningIndex = partitioningIndex;
-        this.leftSymbols = leftSymbols;
-        this.rightSymbols = rightSymbols;
-        this.leftPrimaryKeySymbols = leftPrimaryKeySymbols;
-        this.leftJoinSymbols = leftJoinSymbols;
-        this.rightJoinSymbols = rightJoinSymbols;
-        this.outputSymbols = outputSymbols;
+        this.hashTable = requireNonNull(table);
+        this.leftPrimaryKeyChannels = requireNonNull(leftPrimaryKeyChannels);
+        this.leftJoinChannels = requireNonNull(leftJoinChannels);
+        this.rightJoinChannels = requireNonNull(rightJoinChannels);
+        this.outputChannels = requireNonNull(outputChannels);
+        this.leftColumnsSize = requireNonNull(leftColumnsSize);
         this.pageBuffer = new Stack<>();
         this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
         this.duplicateSet = new HashSet<>(10000);
@@ -122,24 +109,11 @@ public class OuterJoinResultProcessingOperator
         //nullIndicators encoding: 0 stands for null, t, 1 stands for s, null, 2 stands for s,t ,3 for null,null
         int[] nullIndicators = new int[page.getPositionCount()];
         boolean[] duplicateIndicators = new boolean[page.getPositionCount()];
-        Map<Symbol, Integer> layout = makeLayout(leftSymbols, rightSymbols);
-        List<Integer> primaryKeyIdxs = layout.entrySet().stream().filter(entry -> leftPrimaryKeySymbols.contains(entry.getKey())).map(Map.Entry::getValue).collect(Collectors.toList());
         for (int i = 0; i < page.getPositionCount(); i++) {
-            boolean leftNull = false;
-            boolean rightNull = false;
-            for (int channel : leftJoinSymbols.stream().map(layout::get).collect(Collectors.toList())) {
-                if (page.getBlock(channel).isNull(i)) {
-                    leftNull = true;
-                    break;
-                }
-            }
-            for (int channel : rightJoinSymbols.stream().map(layout::get).collect(Collectors.toList())) {
-                if (page.getBlock(channel).isNull(i)) {
-                    rightNull = true;
-                    break;
-                }
-            }
-            String primaryKeyStr = tupleToString(page, primaryKeyIdxs, i);
+            int finalI = i;
+            boolean leftNull = leftJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
+            boolean rightNull = rightJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
+            String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
             if (duplicateSet.contains(primaryKeyStr)) {
                 duplicateIndicators[i] = true;
             }
@@ -162,8 +136,8 @@ public class OuterJoinResultProcessingOperator
         }
         int[] leftRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2) && !duplicateIndicators[idx]).toArray();
         int[] outputRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 2)).toArray();
-        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftSymbols.size()).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
-        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputSymbols.stream().map(layout::get).mapToInt(i -> i).toArray());
+        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftColumnsSize).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
+        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputChannels.stream().mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
     }
 
@@ -186,22 +160,6 @@ public class OuterJoinResultProcessingOperator
             }
         }
         return res.toString();
-    }
-
-    private ImmutableMap<Symbol, Integer> makeLayout(List<Symbol> leftSymbols, List<Symbol> rightSymbols)
-    {
-        ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
-        int channel = 0;
-        for (Symbol symbol : leftSymbols) {
-            outputMappings.put(symbol, channel);
-            channel++;
-        }
-        for (Symbol symbol : rightSymbols) {
-            outputMappings.put(symbol, channel);
-            channel++;
-        }
-
-        return outputMappings.build();
     }
 
     @Override
@@ -234,12 +192,11 @@ public class OuterJoinResultProcessingOperator
         private final PlanNodeId planNodeId;
         private final AdaptiveJoinBridge joinBridge;
         private final boolean isInnerJoin;
-        private final List<Symbol> leftSymbols;
-        private final List<Symbol> rightSymbols;
-        private final List<Symbol> leftPrimaryKeySymbols;
-        private final List<Symbol> leftJoinSymbols;
-        private final List<Symbol> rightJoinSymbols;
-        private final List<Symbol> outputSymbols;
+        private final List<Integer> leftPrimaryKeyChannels;
+        private final List<Integer> leftJoinChannels;
+        private final List<Integer> rightJoinChannels;
+        private final List<Integer> outputChannels;
+        private final Integer leftColumnsSize;
         private boolean closed;
 
         public OuterJoinResultProcessingOperatorFactory(
@@ -247,23 +204,21 @@ public class OuterJoinResultProcessingOperator
                 PlanNodeId planNodeId,
                 AdaptiveJoinBridge joinBridge,
                 boolean isInnerJoin,
-                List<Symbol> leftSymbols,
-                List<Symbol> rightSymbols,
-                List<Symbol> leftPrimaryKeySymbols,
-                List<Symbol> leftJoinSymbols,
-                List<Symbol> rightJoinSymbols,
-                List<Symbol> outputSymbols)
+                List<Integer> leftPrimaryKeyChannels,
+                List<Integer> leftJoinChannels,
+                List<Integer> rightJoinChannels,
+                List<Integer> outputChannels,
+                Integer leftColumnsSize)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
             this.isInnerJoin = isInnerJoin;
-            this.leftSymbols = leftSymbols;
-            this.leftPrimaryKeySymbols = leftPrimaryKeySymbols;
-            this.rightSymbols = rightSymbols;
-            this.leftJoinSymbols = leftJoinSymbols;
-            this.rightJoinSymbols = rightJoinSymbols;
-            this.outputSymbols = outputSymbols;
+            this.leftPrimaryKeyChannels = requireNonNull(leftPrimaryKeyChannels);
+            this.leftJoinChannels = requireNonNull(leftJoinChannels);
+            this.rightJoinChannels = requireNonNull(rightJoinChannels);
+            this.outputChannels = requireNonNull(outputChannels);
+            this.leftColumnsSize = requireNonNull(leftColumnsSize);
         }
 
         @Override
@@ -272,9 +227,8 @@ public class OuterJoinResultProcessingOperator
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
-
-            return new OuterJoinResultProcessingOperator(operatorContext, planNodeId, isInnerJoin,
-                    leftSymbols, rightSymbols, leftPrimaryKeySymbols, leftJoinSymbols, rightJoinSymbols, outputSymbols, joinBridge.getHashTable(localPartitioningIndex), localPartitioningIndex);
+            return new OuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
+                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge.getHashTable(localPartitioningIndex));
         }
 
         @Override

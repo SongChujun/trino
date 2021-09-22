@@ -344,9 +344,9 @@ public interface ConnectorMetadata
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting column comments");
     }
 
-    default Map<Integer, Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column, int n)
+    default List<Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle column)
     {
-        return Map.of();
+        return List.of();
     }
 
     /**

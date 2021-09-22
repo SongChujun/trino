@@ -124,9 +124,9 @@ public interface JdbcClient
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support setting column comments");
     }
 
-    default Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    default List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
     {
-        return ImmutableMap.of();
+        return ImmutableList.of();
     }
 
     void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column);

@@ -14,7 +14,6 @@
 package io.trino.metadata;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.Session;
 import io.trino.connector.CatalogName;
@@ -165,9 +164,9 @@ public interface Metadata
      */
     ColumnMetadata getColumnMetadata(Session session, TableHandle tableHandle, ColumnHandle columnHandle);
 
-    default Map<Integer, Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle, int n)
+    default List<Object> getNthPercentile(Session session, TableHandle tableHandle, ColumnHandle columnHandle)
     {
-        return ImmutableMap.of();
+        return ImmutableList.of();
     }
 
     /**

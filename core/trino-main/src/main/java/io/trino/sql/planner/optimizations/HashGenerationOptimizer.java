@@ -362,14 +362,9 @@ public class HashGenerationOptimizer
             PlanWithProperties build = planAndEnforce(node.getBuild(), new HashComputationSet(buildHashComputation), true, new HashComputationSet(buildHashComputation));
             Symbol buildHashSymbol = build.getRequiredHashSymbol(buildHashComputation.get());
             Optional<HashComputation> outerHashComputation = computeHash(outerHashSymbols);
-
-            // drop undesired hash symbols from build to save memory
             PlanWithProperties outer = planAndEnforce(node.getOuter(), new HashComputationSet(outerHashComputation), true, new HashComputationSet(outerHashComputation));
-
             Symbol outerHashSymbol = outer.getRequiredHashSymbol(outerHashComputation.get());
 
-            // build map of all hash symbols
-            // NOTE: Full outer join doesn't use hash symbols
             Map<HashComputation, Symbol> allHashSymbols = new HashMap<>();
             if (node.getType() == INNER) {
                 allHashSymbols.putAll(build.getHashSymbols());

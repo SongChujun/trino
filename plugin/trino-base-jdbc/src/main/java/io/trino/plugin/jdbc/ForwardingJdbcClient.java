@@ -268,9 +268,9 @@ public abstract class ForwardingJdbcClient
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    public List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
     {
-        return delegate().getNthPercentile(session, handle, column, n);
+        return delegate().getNthPercentile(session, handle, column);
     }
 
     @Override

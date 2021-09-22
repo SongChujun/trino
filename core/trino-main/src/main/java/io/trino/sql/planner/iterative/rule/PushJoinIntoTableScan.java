@@ -62,6 +62,7 @@ import java.util.Set;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.SystemSessionProperties.getHybridJoinPushdownRatio;
 import static io.trino.SystemSessionProperties.isAllowPushdownIntoConnectors;
 import static io.trino.SystemSessionProperties.isHybridJoinEnabled;
 import static io.trino.matching.Capture.newCapture;
@@ -198,17 +199,32 @@ public class PushJoinIntoTableScan
                     }
                     leftPrimaryKeySymbols = left.getAssignments().entrySet().stream().filter(a -> leftPrimaryKeyColumnHandles.contains(a.getValue())).map(Map.Entry::getKey).collect(toImmutableList());
 
-                    int ntile = 10;
-                    Map<Integer, Object> nthPercentile;
-                    nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get(), ntile);
+                    double hybridJoinPushdownRatio = 1 - getHybridJoinPushdownRatio(context.getSession());
+                    List<Object> nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get());
                     Optional<ColumnHandle> finalFirstRightPrimaryKeyColumnHandle = firstRightPrimaryKeyColumnHandle;
                     filterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(finalFirstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
-                    Object delimiterVal = nthPercentile.get(ntile / 2);
-                    if ((delimiterVal instanceof Integer)) {
+
+                    Object minColumnVal = nthPercentile.get(0);
+                    Object maxVColumnVal = nthPercentile.get(1);
+                    if ((minColumnVal instanceof Integer)) {
+                        int intMinColumnVal = (Integer) minColumnVal;
+                        int intMaxColumnVal = (Integer) maxVColumnVal;
+                        int delimiterVal = intMinColumnVal + (int) (hybridJoinPushdownRatio * (intMaxColumnVal - intMinColumnVal));
                         useHybridJoin = true;
-                        delimiter = new LongLiteral(String.valueOf(nthPercentile.get(ntile / 2)));
-                        buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiter, filterSymbol.toSymbolReference());
-                        outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiter, filterSymbol.toSymbolReference());
+                        if (delimiterVal <= intMinColumnVal) {
+                            useHybridJoin = false;
+                        }
+                        else if (delimiterVal >= intMaxColumnVal) {
+                            return Result.empty();
+                        }
+                        else {
+                            delimiter = new LongLiteral(String.valueOf(delimiterVal));
+                            buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiter, filterSymbol.toSymbolReference());
+                            outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiter, filterSymbol.toSymbolReference());
+                        }
+                    }
+                    else {
+                        useHybridJoin = false;
                     }
                 }
             }

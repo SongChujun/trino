@@ -701,11 +701,11 @@ public class DefaultJdbcMetadata
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle table, ColumnHandle column, int n)
+    public List<Object> getNthPercentile(ConnectorSession session, ConnectorTableHandle table, ColumnHandle column)
     {
         JdbcTableHandle tableHandle = (JdbcTableHandle) table;
         JdbcColumnHandle columnHandle = (JdbcColumnHandle) column;
-        return jdbcClient.getNthPercentile(session, tableHandle, columnHandle, n);
+        return jdbcClient.getNthPercentile(session, tableHandle, columnHandle);
     }
 
     @Override

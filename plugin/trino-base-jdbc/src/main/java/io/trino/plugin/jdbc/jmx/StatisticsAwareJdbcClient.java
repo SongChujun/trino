@@ -201,9 +201,9 @@ public final class StatisticsAwareJdbcClient
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    public List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
     {
-        return stats.getGetNthPercentile().wrap(() -> delegate().getNthPercentile(session, handle, column, n));
+        return stats.getGetNthPercentile().wrap(() -> delegate().getNthPercentile(session, handle, column));
     }
 
     @Override

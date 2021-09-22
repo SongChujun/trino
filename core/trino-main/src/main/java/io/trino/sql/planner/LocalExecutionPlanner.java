@@ -2712,6 +2712,7 @@ public class LocalExecutionPlanner
             List<Type> buildTypes = buildSource.getTypes();
             List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getBuildOutputSymbols(), buildSource.getLayout()));
             List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getProbeOutputSymbols(), outerSource.getLayout()));
+            probeOutputChannels = probeOutputChannels.stream().map(i -> i >= node.getOuterLeftSymbols().size() ? i - node.getOuterRightSymbols().size() : i).collect(toImmutableList());
             ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
                     .map(buildSource.getTypes()::get)
                     .collect(toImmutableList());
@@ -2734,7 +2735,7 @@ public class LocalExecutionPlanner
             int partitionCount = getTaskConcurrency(session);
             //hacky only support inner join for now
             AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
-                    buildChannels, probeChannels, buildOutputTypes, Optional.of(probeOutputChannels), blockTypeOperators,
+                    buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), Optional.of(probeOutputChannels), blockTypeOperators,
                     expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
             PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
 
@@ -2742,8 +2743,9 @@ public class LocalExecutionPlanner
                     buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
 
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                    context.getNextOperatorId(), node.getId(), joinBridge, true,
-                    node.getOuterLeftSymbols(), node.getOuterRightSymbols(), node.getProbePrimaryKeySymbols(), leftSymbols, rightSymbols, node.getOutputSymbols());
+                    context.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
+                    ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
+                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size());
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();

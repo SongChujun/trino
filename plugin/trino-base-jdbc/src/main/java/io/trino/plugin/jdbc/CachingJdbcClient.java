@@ -78,7 +78,7 @@ public class CachingJdbcClient
     private final Cache<TableHandleCacheKey, Optional<JdbcTableHandle>> tableHandleCache;
     private final Cache<ColumnsCacheKey, List<JdbcColumnHandle>> columnsCache;
     private final Cache<ColumnsCacheKey, List<String>> primaryKeycolumnsCache;
-    private final Cache<ColumnNtileCacheKey, Map<Integer, Object>> nthPercentileCache;
+    private final Cache<ColumnNtileCacheKey, List<Object>> nthPercentileCache;
     private final Cache<TableStatisticsCacheKey, TableStatistics> statisticsCache;
 
     @Inject
@@ -375,10 +375,10 @@ public class CachingJdbcClient
     }
 
     @Override
-    public Map<Integer, Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column, int n)
+    public List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
     {
         ColumnNtileCacheKey key = new ColumnNtileCacheKey(getIdentityKey(session), getSessionProperties(session), handle.getRequiredNamedRelation().getSchemaTableName(), column.getColumnName());
-        return get(nthPercentileCache, key, () -> delegate.getNthPercentile(session, handle, column, n));
+        return get(nthPercentileCache, key, () -> delegate.getNthPercentile(session, handle, column));
     }
 
     @Override
