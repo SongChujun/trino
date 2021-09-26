@@ -39,6 +39,7 @@ public class HashBuildAndProbeOperator
     private final HashBuildAndProbeTable table;
     private boolean isFinished;
     private final int partitioningIndex;
+    private int cnt;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
@@ -55,6 +56,7 @@ public class HashBuildAndProbeOperator
         this.table = table;
         this.partitioningIndex = partitioningIndex;
         isFinished = false;
+        this.cnt = 0;
     }
 
     @Override
@@ -78,6 +80,7 @@ public class HashBuildAndProbeOperator
     @Override
     public void addInput(Page page)
     {
+        this.cnt += page.getPositionCount();
         table.addPage(page);
     }
 

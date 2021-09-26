@@ -2729,7 +2729,7 @@ public class LocalExecutionPlanner
                             .map(JoinNode.EquiJoinClause::getRight)
                             .collect(toImmutableSet())
                             .containsAll(node.getBuildOutputSymbols());
-            int expectedPositions = 100; //hard code here, subject to change in the future
+            int expectedPositions = 5000000; //hard code here, subject to change in the future
 
             boolean eagerCompact = false; //hacky;
             int partitionCount = getTaskConcurrency(session);

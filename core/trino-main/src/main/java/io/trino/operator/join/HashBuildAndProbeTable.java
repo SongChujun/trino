@@ -85,6 +85,8 @@ public final class HashBuildAndProbeTable
     private long hashCollisions;
     private double expectedHashCollisions;
     private final JoinProcessor joinProcessor;
+    private long joinPageEntryCnt;
+    private long buildPageEntryCnt;
 
     public HashBuildAndProbeTable(
             List<Type> types, //from buildSource.getTypes() -> ; from layout
@@ -171,7 +173,7 @@ public final class HashBuildAndProbeTable
                 .collect(toImmutableList());
     }
 
-    public synchronized void addPage(Page page)
+    public void addPage(Page page)
     {
         //Add page to channel and address
         if (page.getPositionCount() == 0) {
@@ -236,9 +238,11 @@ public final class HashBuildAndProbeTable
         estimatedSize = calculateEstimatedSize();
     }
 
-    public synchronized Page joinPage(Page page)
+    public List<Page> joinPage(Page page)
     {
-        return joinProcessor.joinPage(page);
+        List<Page> res = joinProcessor.join(page);
+        this.joinPageEntryCnt += 0;
+        return res;
     }
 
     //only clears the data, not the controlling information
@@ -466,9 +470,9 @@ public final class HashBuildAndProbeTable
             probeOnOuterSide = joinType == PROBE_OUTER || joinType == FULL_OUTER;
         }
 
-        public Page joinPage(Page page)
+        private Page joinPage()
         {
-            probe = joinProbeFactory.createJoinProbe(page);
+
             do {
                 if (probe.getPosition() >= 0) {
                     if (!joinCurrentPosition(HashBuildAndProbeTable.this)) {
@@ -487,9 +491,27 @@ public final class HashBuildAndProbeTable
                 }
             }
             while (true);
-            Page outputPage = pageBuilder.build(probe);
-            pageBuilder.reset();
-            return outputPage;
+            if (!pageBuilder.isEmpty())
+            {
+                Page outputPage = pageBuilder.build(probe);
+                pageBuilder.reset();
+                return outputPage;
+            }
+            return null;
+        }
+
+        public List<Page> join(Page page)
+        {
+            ImmutableList.Builder<Page> res = new ImmutableList.Builder<>();
+            probe = joinProbeFactory.createJoinProbe(page);
+            while (!probe.isFinished())
+            {
+                Page joinResult = joinPage();
+                if (joinResult !=null) {
+                    res.add(joinResult);
+                }
+            }
+            return res.build();
         }
 
         public void reset()

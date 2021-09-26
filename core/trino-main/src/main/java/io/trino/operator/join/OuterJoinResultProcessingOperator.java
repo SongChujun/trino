@@ -19,6 +19,7 @@ import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
+import io.trino.spi.TrinoException;
 import io.trino.spi.block.IntArrayBlock;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -39,7 +40,8 @@ public class OuterJoinResultProcessingOperator
 {
     private final OperatorContext operatorContext;
     private final boolean isInnerJoin;
-    private final Stack<Page> pageBuffer;
+    private final Stack<Page> outputPageBuffer;
+    private final Stack<Page> inputPageBuffer;
     private final List<Integer> leftPrimaryKeyChannels;
     private final List<Integer> leftJoinChannels;
     private final List<Integer> rightJoinChannels;
@@ -49,6 +51,10 @@ public class OuterJoinResultProcessingOperator
     private final HashBuildAndProbeTable hashTable;
     private boolean isFinished;
     private Set<String> duplicateSet;
+    private int outerEntryCnt;
+    private int outputEntryCnt;
+    private int joinResultEntryCnt;
+
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -68,9 +74,13 @@ public class OuterJoinResultProcessingOperator
         this.rightJoinChannels = requireNonNull(rightJoinChannels);
         this.outputChannels = requireNonNull(outputChannels);
         this.leftColumnsSize = requireNonNull(leftColumnsSize);
-        this.pageBuffer = new Stack<>();
+        this.outputPageBuffer = new Stack<>();
+        this.inputPageBuffer = new Stack<>();
         this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
-        this.duplicateSet = new HashSet<>(10000);
+        this.duplicateSet = new HashSet<>(150000);
+        this.outerEntryCnt = 0;
+        this.outputEntryCnt = 0;
+        this.joinResultEntryCnt = 0;
     }
 
     @Override
@@ -94,12 +104,26 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        Page[] extractedPages = extractPages(page, isInnerJoin);
-        Page joinResult = hashTable.joinPage(extractedPages[0]);
+        inputPageBuffer.add(page);
+        processPage();
+    }
+
+    private void processPage()
+    {
+
+        Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
+//        this.outputEntryCnt +=extractedPages[1].getPositionCount();
+        this.outerEntryCnt +=extractedPages[0].getPositionCount();
+        List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
         if (joinResult != null) {
-            pageBuffer.add(joinResult);
+            joinResultEntryCnt += joinResult.stream().map(Page::getPositionCount).reduce(0, Integer::sum);
+//            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
+            outputPageBuffer.addAll(joinResult);
+//            joinResult.forEach(outputPageBuffer::add);
+//            outputPageBuffer.add(joinResult);
         }
-        pageBuffer.add(extractedPages[1]);
+        outputEntryCnt+=extractedPages[1].getPositionCount();
+        outputPageBuffer.add(extractedPages[1]);
     }
 
     //specification: left: probeSide, right: outerSide
@@ -165,24 +189,28 @@ public class OuterJoinResultProcessingOperator
     @Override
     public Page getOutput()
     {
-        if (pageBuffer.isEmpty()) {
+        if (outputPageBuffer.isEmpty()) {
             return null;
         }
         else {
-            return pageBuffer.pop();
+            return outputPageBuffer.pop();
         }
     }
 
     @Override
     public boolean isFinished()
     {
-        return isFinished && pageBuffer.isEmpty();
+        return isFinished && outputPageBuffer.isEmpty() && inputPageBuffer.isEmpty();
     }
 
     @Override
     public void finish()
     {
         isFinished = true;
+        while (!inputPageBuffer.isEmpty())
+        {
+            processPage();
+        }
     }
 
     public static class OuterJoinResultProcessingOperatorFactory
