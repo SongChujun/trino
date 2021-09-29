@@ -14,8 +14,6 @@
 package io.trino.operator.join;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 import io.trino.operator.PagesHashStrategy;
 import io.trino.operator.SimplePagesHashStrategy;
 import io.trino.spi.Page;
@@ -43,8 +41,6 @@ import static io.airlift.slice.SizeOf.sizeOf;
 import static io.trino.operator.SyntheticAddress.decodePosition;
 import static io.trino.operator.SyntheticAddress.decodeSliceIndex;
 import static io.trino.operator.SyntheticAddress.encodeSyntheticAddress;
-import static io.trino.operator.join.LookupJoinOperatorFactory.JoinType.FULL_OUTER;
-import static io.trino.operator.join.LookupJoinOperatorFactory.JoinType.PROBE_OUTER;
 import static io.trino.spi.StandardErrorCode.GENERIC_INSUFFICIENT_RESOURCES;
 import static io.trino.util.HashCollisionsEstimator.estimateNumberOfHashCollisions;
 import static java.lang.Math.toIntExact;
@@ -73,7 +69,6 @@ public final class HashBuildAndProbeTable
     // and there is no performance gain from storing full hashes
     private final byte[] positionToHashes;
     private final JoinStatisticsCounter statisticsCounter;
-    private final SettableFuture<Boolean> hashBuildFinishedFuture;
     private int pageCount;
     private int positionCount;
     private long pagesMemorySize;
@@ -84,7 +79,6 @@ public final class HashBuildAndProbeTable
     private long size;
     private long hashCollisions;
     private double expectedHashCollisions;
-    private final JoinProcessor joinProcessor;
     private long joinPageEntryCnt;
     private long buildPageEntryCnt;
 
@@ -139,8 +133,6 @@ public final class HashBuildAndProbeTable
         Arrays.fill(key, -1);
         positionToHashes = new byte[hashSize];
         this.statisticsCounter = new JoinStatisticsCounter(joinType);
-        this.hashBuildFinishedFuture = SettableFuture.create();
-        joinProcessor = new JoinProcessor(buildOutputTypes, joinProbeFactory, joinType, outputSingleMatch, statisticsCounter);
     }
 
     private static int getHashPosition(long rawHash, long mask)
@@ -159,11 +151,6 @@ public final class HashBuildAndProbeTable
         rawHash ^= rawHash >>> 33;
 
         return (int) (rawHash & mask);
-    }
-
-    public ListenableFuture<Boolean> getBuildFinishedFuture()
-    {
-        return hashBuildFinishedFuture;
     }
 
     private List<Integer> rangeList(int endExclusive)
@@ -238,13 +225,6 @@ public final class HashBuildAndProbeTable
         estimatedSize = calculateEstimatedSize();
     }
 
-    public List<Page> joinPage(Page page)
-    {
-        List<Page> res = joinProcessor.join(page);
-        this.joinPageEntryCnt += 0;
-        return res;
-    }
-
     //only clears the data, not the controlling information
     public void reset()
     {
@@ -261,11 +241,6 @@ public final class HashBuildAndProbeTable
         this.hashCollisions = 0;
         this.expectedHashCollisions = 0;
         Arrays.fill(positionToHashes, (byte) 0);
-    }
-
-    public void setBuildFinished()
-    {
-        hashBuildFinishedFuture.set(true);
     }
 
     @Override
@@ -433,149 +408,5 @@ public final class HashBuildAndProbeTable
     @Override
     public void close()
     {
-    }
-
-    private class JoinProcessor
-    {
-        private final JoinProbe.JoinProbeFactory joinProbeFactory;
-        private final boolean probeOnOuterSide;
-        private final JoinStatisticsCounter statisticsCounter;
-        private final List<Type> buildOutputTypes;
-        private final LookupJoinPageBuilder pageBuilder;
-        private final IntArrayList probeIndexBuilder;
-        private boolean currentProbePositionProducedRow;
-        private boolean isSequentialProbeIndices;
-        private int estimatedProbeBlockBytes;
-        private long joinPosition = -1;
-        private int joinSourcePositions;
-        private final boolean outputSingleMatch;
-        private JoinProbe probe;
-
-        private JoinProcessor(List<Type> buildOutputTypes,
-                JoinProbe.JoinProbeFactory joinProbeFactory,
-                LookupJoinOperatorFactory.JoinType joinType,
-                boolean outputSingleMatch,
-                JoinStatisticsCounter statisticsCounter)
-        {
-            this.buildOutputTypes = buildOutputTypes;
-            this.joinProbeFactory = joinProbeFactory;
-            this.pageBuilder = new LookupJoinPageBuilder(buildOutputTypes);
-            this.probeIndexBuilder = new IntArrayList();
-            this.currentProbePositionProducedRow = false;
-            this.isSequentialProbeIndices = false;
-            this.estimatedProbeBlockBytes = 0;
-            this.outputSingleMatch = outputSingleMatch;
-            this.statisticsCounter = statisticsCounter;
-
-            probeOnOuterSide = joinType == PROBE_OUTER || joinType == FULL_OUTER;
-        }
-
-        private Page joinPage()
-        {
-
-            do {
-                if (probe.getPosition() >= 0) {
-                    if (!joinCurrentPosition(HashBuildAndProbeTable.this)) {
-                        break;
-                    }
-                    if (!currentProbePositionProducedRow) {
-                        currentProbePositionProducedRow = true;
-                        if (!outerJoinCurrentPosition()) {
-                            break;
-                        }
-                    }
-                    statisticsCounter.recordProbe(joinSourcePositions);
-                }
-                if (!advanceProbePosition(HashBuildAndProbeTable.this)) {
-                    break;
-                }
-            }
-            while (true);
-            if (!pageBuilder.isEmpty())
-            {
-                Page outputPage = pageBuilder.build(probe);
-                pageBuilder.reset();
-                return outputPage;
-            }
-            return null;
-        }
-
-        public List<Page> join(Page page)
-        {
-            ImmutableList.Builder<Page> res = new ImmutableList.Builder<>();
-            probe = joinProbeFactory.createJoinProbe(page);
-            while (!probe.isFinished())
-            {
-                Page joinResult = joinPage();
-                if (joinResult !=null) {
-                    res.add(joinResult);
-                }
-            }
-            return res.build();
-        }
-
-        public void reset()
-        {
-//            hashBuildFinishedFuture.set(true);
-            this.joinPosition = -1;
-            this.pageBuilder.reset();
-            this.currentProbePositionProducedRow = false;
-            this.isSequentialProbeIndices = false;
-            this.estimatedProbeBlockBytes = 0;
-            this.probeIndexBuilder.clear();
-        }
-
-        private boolean joinCurrentPosition(LookupSource lookupSource)
-        {
-            while (joinPosition >= 0) {
-                if (lookupSource.isJoinPositionEligible(joinPosition, probe.getPosition(), probe.getPage())) {
-                    currentProbePositionProducedRow = true;
-
-                    pageBuilder.appendRow(probe, lookupSource, joinPosition);
-                    joinSourcePositions++;
-                }
-
-                if (outputSingleMatch && currentProbePositionProducedRow) {
-                    joinPosition = -1;
-                }
-                else {
-                    // get next position on lookup side for this probe row
-                    joinPosition = lookupSource.getNextJoinPosition(joinPosition, probe.getPosition(), probe.getPage());
-                }
-
-                if (pageBuilder.isFull()) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private boolean outerJoinCurrentPosition()
-        {
-            if (probeOnOuterSide) {
-                pageBuilder.appendNullForBuild(probe);
-                return !pageBuilder.isFull();
-            }
-            return true;
-        }
-
-        private boolean advanceProbePosition(HashBuildAndProbeTable lookupSource)
-        {
-            if (!probe.advanceNextPosition()) {
-                return false;
-            }
-
-            // update join position
-            joinPosition = probe.getCurrentJoinPosition(lookupSource);
-            // reset row join state for next row
-            joinSourcePositions = 0;
-            currentProbePositionProducedRow = false;
-            return true;
-        }
-
-        private int getEstimatedProbeRowSize(JoinProbe probe)
-        {
-            return 0;
-        }
     }
 }

@@ -81,6 +81,20 @@ public class PartitionedLookupSource
         }
     }
 
+    public static PartitionedLookupSource createPartitionedLookupSource(List<LookupSource> partitions, List<Type> hashChannelTypes, boolean outer, BlockTypeOperators blockTypeOperators)
+    {
+        if (outer) {
+            throw new IllegalStateException();
+        }
+        else {
+            return new PartitionedLookupSource(
+                            partitions,
+                            hashChannelTypes,
+                            Optional.empty(),
+                            blockTypeOperators);
+        }
+    }
+
     private final LookupSource[] lookupSources;
     private final LocalPartitionGenerator partitionGenerator;
     private final int partitionMask;

@@ -741,19 +741,10 @@ public class AddLocalExchanges
         @Override
         public PlanWithProperties visitAdaptiveJoin(AdaptiveJoinNode node, StreamPreferredProperties parentPreferences)
         {
-            List<Symbol> outerHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
-            StreamPreferredProperties outerPreference;
-            if (getTaskConcurrency(session) > 1) {
-                outerPreference = exactlyPartitionedOn(outerHashSymbols);
-            }
-            else {
-                outerPreference = singleStream();
-            }
-
             PlanWithProperties outer = planAndEnforce(
                     node.getOuter(),
-                    outerPreference,
-                    outerPreference);
+                    defaultParallelism(session),
+                    parentPreferences.constrainTo(node.getProbeOutputSymbols()).withDefaultParallelism(session));
 
             if (isSpillEnabled(session)) {
                 throw new IllegalStateException("spill unspoorted yer");

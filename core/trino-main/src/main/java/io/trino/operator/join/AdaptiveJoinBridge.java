@@ -13,9 +13,12 @@
  */
 package io.trino.operator.join;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import io.trino.spi.type.Type;
 import io.trino.type.BlockTypeOperators;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -24,6 +27,8 @@ public class AdaptiveJoinBridge
 {
     // use buildside and probeside to distinguish between two hashtables
     private final HashBuildAndProbeTable[] tables;
+    private int completedHashTableCnt;
+    private SettableFuture<Boolean> hashBuildFinishedFuture;
 
     public AdaptiveJoinBridge(
             List<Type> buildTypes,
@@ -48,10 +53,30 @@ public class AdaptiveJoinBridge
                     buildJoinChannels, buildOutputTypes, buildOutputChannels,
                     blockTypeOperators, expectedPositions, buildJoinProbeFactory, joinType, outputSingleMatch, eagerCompact);
         }
+        this.hashBuildFinishedFuture = SettableFuture.create();
+        completedHashTableCnt = 0;
     }
 
     public HashBuildAndProbeTable getHashTable(int i)
     {
         return tables[i];
+    }
+
+    public List<LookupSource> getHashTables()
+    {
+        return Arrays.asList(tables);
+    }
+
+    public ListenableFuture<?> getBuildFinishedFuture()
+    {
+        return hashBuildFinishedFuture;
+    }
+
+    public synchronized void setBuildFinished(int i)
+    {
+        completedHashTableCnt += 1;
+        if (completedHashTableCnt == tables.length) {
+            hashBuildFinishedFuture.set(true);
+        }
     }
 }

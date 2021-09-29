@@ -111,17 +111,21 @@ import io.trino.operator.index.IndexJoinLookupStats;
 import io.trino.operator.index.IndexLookupSourceFactory;
 import io.trino.operator.index.IndexSourceOperator;
 import io.trino.operator.join.AdaptiveJoinBridge;
+import io.trino.operator.join.HashBuildAndProbeJoinProcessor;
 import io.trino.operator.join.HashBuildAndProbeOperator;
 import io.trino.operator.join.HashBuilderOperator.HashBuilderOperatorFactory;
 import io.trino.operator.join.JoinBridgeManager;
 import io.trino.operator.join.JoinOperatorFactory;
 import io.trino.operator.join.JoinOperatorFactory.OuterOperatorFactoryResult;
+import io.trino.operator.join.JoinProbe;
 import io.trino.operator.join.LookupJoinOperatorFactory;
 import io.trino.operator.join.LookupOuterOperator.LookupOuterOperatorFactory;
+import io.trino.operator.join.LookupSource;
 import io.trino.operator.join.LookupSourceFactory;
 import io.trino.operator.join.NestedLoopJoinBridge;
 import io.trino.operator.join.NestedLoopJoinPagesSupplier;
 import io.trino.operator.join.OuterJoinResultProcessingOperator;
+import io.trino.operator.join.PartitionedLookupSource;
 import io.trino.operator.join.PartitionedLookupSourceFactory;
 import io.trino.operator.project.CursorProcessor;
 import io.trino.operator.project.PageProcessor;
@@ -2721,6 +2725,8 @@ public class LocalExecutionPlanner
 
             OptionalInt probeHashChannel = node.getOuterHashSymbol().map(channelGetter(outerSource)).map(i -> i - node.getOuterRightSymbols().size())
                     .map(OptionalInt::of).orElse(OptionalInt.empty());
+            node.getOuterHashSymbol().map(channelGetter(outerSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
             List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, buildSource.getLayout()));
             List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout()));
 
@@ -2737,15 +2743,19 @@ public class LocalExecutionPlanner
             AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
                     buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), Optional.of(probeOutputChannels), blockTypeOperators,
                     expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
+            LookupSource partitionedLookupSource = PartitionedLookupSource.createPartitionedLookupSource(joinBridge.getHashTables(), buildChannels.stream().map(buildSource.getTypes()::get).collect(toImmutableList()), false, blockTypeOperators);
+            HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory = new HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory(buildOutputTypes, new JoinProbe.JoinProbeFactory(probeOutputChannels.stream().mapToInt(i -> i).toArray(), probeChannels, probeHashChannel), partitionedLookupSource,
+                    LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch);
             PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
+            PartitionFunction outerPartitionFunction = getLocalPartitionGenerator(node.getOuterHashSymbol().map(channelGetter(outerSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty()), probeChannels, outerSource.getTypes(), partitionCount);
 
             OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
                     buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
-
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
-                    context.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
+                    context.getNextOperatorId(), node.getId(), joinBridge, joinProcessorFactory, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
                     ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
-                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size());
+                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size(), partitionCount, outerPartitionFunction);
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();

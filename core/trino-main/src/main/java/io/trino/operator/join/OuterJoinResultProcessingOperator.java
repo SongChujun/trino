@@ -18,16 +18,20 @@ import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
+import io.trino.operator.PartitionFunction;
 import io.trino.spi.Page;
-import io.trino.spi.TrinoException;
 import io.trino.spi.block.IntArrayBlock;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -47,14 +51,15 @@ public class OuterJoinResultProcessingOperator
     private final List<Integer> rightJoinChannels;
     private final List<Integer> outputChannels;
     private final Integer leftColumnsSize;
-    private final ListenableFuture<Boolean> hashBuildFinishedFuture;
-    private final HashBuildAndProbeTable hashTable;
+    private AdaptiveJoinBridge joinBridge;
+    private final HashBuildAndProbeJoinProcessor joinProcessor;
     private boolean isFinished;
-    private Set<String> duplicateSet;
+    private Map<Integer, Set<String>> duplicateSetMap;
+    private PartitionFunction partitionFunction;
+    private final Lock lock;
     private int outerEntryCnt;
     private int outputEntryCnt;
     private int joinResultEntryCnt;
-
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -64,11 +69,16 @@ public class OuterJoinResultProcessingOperator
             List<Integer> rightJoinChannels,
             List<Integer> outputChannels,
             Integer leftColumnsSize,
-            HashBuildAndProbeTable table)
+            AdaptiveJoinBridge joinBridge,
+            HashBuildAndProbeJoinProcessor joinProcessor,
+            Map<Integer, Set<String>> duplicateSetMap,
+            PartitionFunction partitionFunction,
+            Lock lock)
     {
         this.operatorContext = operatorContext;
         this.isInnerJoin = isInnerJoin;
-        this.hashTable = requireNonNull(table);
+        this.joinBridge = requireNonNull(joinBridge);
+        this.joinProcessor = requireNonNull(joinProcessor);
         this.leftPrimaryKeyChannels = requireNonNull(leftPrimaryKeyChannels);
         this.leftJoinChannels = requireNonNull(leftJoinChannels);
         this.rightJoinChannels = requireNonNull(rightJoinChannels);
@@ -76,8 +86,9 @@ public class OuterJoinResultProcessingOperator
         this.leftColumnsSize = requireNonNull(leftColumnsSize);
         this.outputPageBuffer = new Stack<>();
         this.inputPageBuffer = new Stack<>();
-        this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
-        this.duplicateSet = new HashSet<>(150000);
+        this.duplicateSetMap = duplicateSetMap;
+        this.partitionFunction = partitionFunction;
+        this.lock = lock;
         this.outerEntryCnt = 0;
         this.outputEntryCnt = 0;
         this.joinResultEntryCnt = 0;
@@ -92,13 +103,13 @@ public class OuterJoinResultProcessingOperator
     @Override
     public ListenableFuture<?> isBlocked()
     {
-        return hashBuildFinishedFuture;
+        return joinBridge.getBuildFinishedFuture();
     }
 
     @Override
     public boolean needsInput()
     {
-        return hashBuildFinishedFuture.isDone();
+        return joinBridge.getBuildFinishedFuture().isDone();
     }
 
     @Override
@@ -110,11 +121,10 @@ public class OuterJoinResultProcessingOperator
 
     private void processPage()
     {
-
         Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
 //        this.outputEntryCnt +=extractedPages[1].getPositionCount();
-        this.outerEntryCnt +=extractedPages[0].getPositionCount();
-        List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
+        this.outerEntryCnt += extractedPages[0].getPositionCount();
+        List<Page> joinResult = joinProcessor.join(extractedPages[0]);
         if (joinResult != null) {
             joinResultEntryCnt += joinResult.stream().map(Page::getPositionCount).reduce(0, Integer::sum);
 //            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
@@ -122,7 +132,7 @@ public class OuterJoinResultProcessingOperator
 //            joinResult.forEach(outputPageBuffer::add);
 //            outputPageBuffer.add(joinResult);
         }
-        outputEntryCnt+=extractedPages[1].getPositionCount();
+        outputEntryCnt += extractedPages[1].getPositionCount();
         outputPageBuffer.add(extractedPages[1]);
     }
 
@@ -138,13 +148,18 @@ public class OuterJoinResultProcessingOperator
             boolean leftNull = leftJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
             boolean rightNull = rightJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
             String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
-            if (duplicateSet.contains(primaryKeyStr)) {
+            int partition = partitionFunction.getPartition(page, i);
+
+            this.lock.lock();
+            if (duplicateSetMap.get(partition).contains(primaryKeyStr)) {
                 duplicateIndicators[i] = true;
             }
             else {
-                duplicateSet.add(primaryKeyStr);
+                duplicateSetMap.get(partition).add(primaryKeyStr);
                 duplicateIndicators[i] = false;
             }
+            this.lock.unlock();
+
             if ((leftNull) && (!rightNull)) {
                 nullIndicators[i] = 0;
             }
@@ -207,8 +222,7 @@ public class OuterJoinResultProcessingOperator
     public void finish()
     {
         isFinished = true;
-        while (!inputPageBuffer.isEmpty())
-        {
+        while (!inputPageBuffer.isEmpty()) {
             processPage();
         }
     }
@@ -218,35 +232,47 @@ public class OuterJoinResultProcessingOperator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final AdaptiveJoinBridge joinBridge;
+        private AdaptiveJoinBridge joinBridge;
+        private final HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory;
         private final boolean isInnerJoin;
         private final List<Integer> leftPrimaryKeyChannels;
         private final List<Integer> leftJoinChannels;
         private final List<Integer> rightJoinChannels;
         private final List<Integer> outputChannels;
         private final Integer leftColumnsSize;
+        private final PartitionFunction partitionFunction;
+        private final Map<Integer, Set<String>> duplicateSetMap;
         private boolean closed;
+        private Lock lock;
 
         public OuterJoinResultProcessingOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
                 AdaptiveJoinBridge joinBridge,
+                HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory,
                 boolean isInnerJoin,
                 List<Integer> leftPrimaryKeyChannels,
                 List<Integer> leftJoinChannels,
                 List<Integer> rightJoinChannels,
                 List<Integer> outputChannels,
-                Integer leftColumnsSize)
+                Integer leftColumnsSize,
+                Integer partitioningCnt,
+                PartitionFunction partitionFunction)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
-            this.joinBridge = requireNonNull(joinBridge, "lookupSourceFactoryManager is null");
+            this.joinBridge = joinBridge;
+            this.joinProcessorFactory = requireNonNull(joinProcessorFactory, "lookupSourceFactoryManager is null");
             this.isInnerJoin = isInnerJoin;
             this.leftPrimaryKeyChannels = requireNonNull(leftPrimaryKeyChannels);
             this.leftJoinChannels = requireNonNull(leftJoinChannels);
             this.rightJoinChannels = requireNonNull(rightJoinChannels);
             this.outputChannels = requireNonNull(outputChannels);
             this.leftColumnsSize = requireNonNull(leftColumnsSize);
+            this.duplicateSetMap = new ConcurrentHashMap<>();
+            IntStream.range(0, partitioningCnt).forEach(i -> duplicateSetMap.put(i, new HashSet<>(1500000)));
+            this.partitionFunction = requireNonNull(partitionFunction);
+            this.lock = new ReentrantLock();
         }
 
         @Override
@@ -256,7 +282,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             return new OuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
-                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge.getHashTable(localPartitioningIndex));
+                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge, joinProcessorFactory.createHashBuildAndProbeJoinProcessor(), duplicateSetMap, partitionFunction, lock);
         }
 
         @Override

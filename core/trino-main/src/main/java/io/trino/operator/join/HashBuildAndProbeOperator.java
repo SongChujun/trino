@@ -36,15 +36,15 @@ public class HashBuildAndProbeOperator
     private final LocalMemoryContext localRevocableMemoryContext;
     private final HashCollisionsCounter hashCollisionsCounter;
     private final PartitionFunction partitionFunction;
-    private final HashBuildAndProbeTable table;
+    private final AdaptiveJoinBridge joinBridge;
     private boolean isFinished;
     private final int partitioningIndex;
     private int cnt;
 
     public HashBuildAndProbeOperator(
             OperatorContext operatorContext,
+            AdaptiveJoinBridge joinBridge,
             PartitionFunction partitionFunction,
-            HashBuildAndProbeTable table,
             int partitioningIndex)
     {
         this.operatorContext = operatorContext;
@@ -52,8 +52,8 @@ public class HashBuildAndProbeOperator
         this.localRevocableMemoryContext = operatorContext.localRevocableMemoryContext();
         this.hashCollisionsCounter = new HashCollisionsCounter(operatorContext);
         operatorContext.setInfoSupplier(hashCollisionsCounter);
+        this.joinBridge = joinBridge;
         this.partitionFunction = partitionFunction;
-        this.table = table;
         this.partitioningIndex = partitioningIndex;
         isFinished = false;
         this.cnt = 0;
@@ -81,7 +81,7 @@ public class HashBuildAndProbeOperator
     public void addInput(Page page)
     {
         this.cnt += page.getPositionCount();
-        table.addPage(page);
+        this.joinBridge.getHashTable(partitioningIndex).addPage(page);
     }
 
     @Override
@@ -105,8 +105,8 @@ public class HashBuildAndProbeOperator
     @Override
     public void finish()
     {
-        table.setBuildFinished();
         isFinished = true;
+        this.joinBridge.setBuildFinished(partitioningIndex);
     }
 
     @Override
@@ -149,8 +149,7 @@ public class HashBuildAndProbeOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
             Integer index = driverContext.getLocalPartitioningIndex();
             return new HashBuildAndProbeOperator(
-                    operatorContext,
-                    partitionFunction, joinBridge.getHashTable(index), index);
+                    operatorContext, joinBridge, partitionFunction, index);
         }
 
         @Override
