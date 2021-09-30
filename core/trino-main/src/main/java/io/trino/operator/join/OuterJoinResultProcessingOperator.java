@@ -24,6 +24,7 @@ import io.trino.spi.block.IntArrayBlock;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,7 @@ public class OuterJoinResultProcessingOperator
             String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
             int partition = partitionFunction.getPartition(page, i);
 
-            this.lock.lock();
+//            this.lock.lock();
             if (duplicateSetMap.get(partition).contains(primaryKeyStr)) {
                 duplicateIndicators[i] = true;
             }
@@ -158,7 +159,7 @@ public class OuterJoinResultProcessingOperator
                 duplicateSetMap.get(partition).add(primaryKeyStr);
                 duplicateIndicators[i] = false;
             }
-            this.lock.unlock();
+//            this.lock.unlock();
 
             if ((leftNull) && (!rightNull)) {
                 nullIndicators[i] = 0;
@@ -269,8 +270,8 @@ public class OuterJoinResultProcessingOperator
             this.rightJoinChannels = requireNonNull(rightJoinChannels);
             this.outputChannels = requireNonNull(outputChannels);
             this.leftColumnsSize = requireNonNull(leftColumnsSize);
-            this.duplicateSetMap = new ConcurrentHashMap<>();
-            IntStream.range(0, partitioningCnt).forEach(i -> duplicateSetMap.put(i, new HashSet<>(1500000)));
+            this.duplicateSetMap = new HashMap<>();
+            IntStream.range(0, partitioningCnt).forEach(i -> duplicateSetMap.put(i, ConcurrentHashMap.newKeySet()));
             this.partitionFunction = requireNonNull(partitionFunction);
             this.lock = new ReentrantLock();
         }
