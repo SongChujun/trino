@@ -19,7 +19,6 @@ import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
-import io.trino.spi.TrinoException;
 import io.trino.spi.block.IntArrayBlock;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -51,10 +50,8 @@ public class OuterJoinResultProcessingOperator
     private final HashBuildAndProbeTable hashTable;
     private boolean isFinished;
     private Set<String> duplicateSet;
-    private int outerEntryCnt;
-    private int outputEntryCnt;
-    private int joinResultEntryCnt;
-
+    private long allExtractTime;
+    private long duplicateDetectionTime;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -78,9 +75,8 @@ public class OuterJoinResultProcessingOperator
         this.inputPageBuffer = new Stack<>();
         this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
         this.duplicateSet = new HashSet<>(150000);
-        this.outerEntryCnt = 0;
-        this.outputEntryCnt = 0;
-        this.joinResultEntryCnt = 0;
+        this.allExtractTime = 0;
+        this.duplicateDetectionTime = 0;
     }
 
     @Override
@@ -110,19 +106,18 @@ public class OuterJoinResultProcessingOperator
 
     private void processPage()
     {
-
+        long processStartTime = System.nanoTime();
         Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
+        duplicateDetectionTime += System.nanoTime() - processStartTime;
 //        this.outputEntryCnt +=extractedPages[1].getPositionCount();
-        this.outerEntryCnt +=extractedPages[0].getPositionCount();
         List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
+        allExtractTime += System.nanoTime() - processStartTime;
         if (joinResult != null) {
-            joinResultEntryCnt += joinResult.stream().map(Page::getPositionCount).reduce(0, Integer::sum);
 //            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
             outputPageBuffer.addAll(joinResult);
 //            joinResult.forEach(outputPageBuffer::add);
 //            outputPageBuffer.add(joinResult);
         }
-        outputEntryCnt+=extractedPages[1].getPositionCount();
         outputPageBuffer.add(extractedPages[1]);
     }
 
@@ -207,8 +202,7 @@ public class OuterJoinResultProcessingOperator
     public void finish()
     {
         isFinished = true;
-        while (!inputPageBuffer.isEmpty())
-        {
+        while (!inputPageBuffer.isEmpty()) {
             processPage();
         }
     }

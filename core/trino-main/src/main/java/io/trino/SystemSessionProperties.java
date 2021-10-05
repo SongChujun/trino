@@ -122,6 +122,7 @@ public final class SystemSessionProperties
     public static final String UNWRAP_CASTS = "unwrap_casts";
     public static final String SKIP_REDUNDANT_SORT = "skip_redundant_sort";
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
+    public static final String USE_SIMPLE_JOIN = "use_simple_join";
     public static final String USE_HYBRID_JOIN = "use_hybrid_join";
     public static final String HYBRID_JOIN_PUSHDOWN_RATIO = "hybrid_join_pushdown_ratio";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
@@ -555,6 +556,11 @@ public final class SystemSessionProperties
                         // This is a diagnostic property
                         true,
                         true),
+                booleanProperty(
+                        USE_SIMPLE_JOIN,
+                        "use simple join",
+                        true,
+                        false),
                 booleanProperty(
                         USE_HYBRID_JOIN,
                         "use hybrid join",
@@ -1069,6 +1075,11 @@ public final class SystemSessionProperties
     public static boolean isAllowPushdownIntoConnectors(Session session)
     {
         return session.getSystemProperty(ALLOW_PUSHDOWN_INTO_CONNECTORS, Boolean.class);
+    }
+
+    public static boolean useSimpleJoin(Session session)
+    {
+        return session.getSystemProperty(USE_SIMPLE_JOIN, Boolean.class);
     }
 
     public static boolean isHybridJoinEnabled(Session session)

@@ -166,7 +166,8 @@ public class QueryBuilder
                     (long) constLeftColumn.getValue(),
                     condition.getOperator().getValue(),
                     client.quoted(jdbcRightColumn.getColumnName()));
-        } else {
+        }
+        else {
             verify(false);
         }
         return "";

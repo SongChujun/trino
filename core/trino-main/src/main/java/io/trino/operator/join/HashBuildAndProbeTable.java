@@ -472,7 +472,6 @@ public final class HashBuildAndProbeTable
 
         private Page joinPage()
         {
-
             do {
                 if (probe.getPosition() >= 0) {
                     if (!joinCurrentPosition(HashBuildAndProbeTable.this)) {
@@ -491,8 +490,7 @@ public final class HashBuildAndProbeTable
                 }
             }
             while (true);
-            if (!pageBuilder.isEmpty())
-            {
+            if (!pageBuilder.isEmpty()) {
                 Page outputPage = pageBuilder.build(probe);
                 pageBuilder.reset();
                 return outputPage;
@@ -504,10 +502,9 @@ public final class HashBuildAndProbeTable
         {
             ImmutableList.Builder<Page> res = new ImmutableList.Builder<>();
             probe = joinProbeFactory.createJoinProbe(page);
-            while (!probe.isFinished())
-            {
+            while (!probe.isFinished()) {
                 Page joinResult = joinPage();
-                if (joinResult !=null) {
+                if (joinResult != null) {
                     res.add(joinResult);
                 }
             }

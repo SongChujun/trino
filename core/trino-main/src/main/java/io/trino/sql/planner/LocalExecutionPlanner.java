@@ -113,6 +113,7 @@ import io.trino.operator.index.IndexSourceOperator;
 import io.trino.operator.join.AdaptiveJoinBridge;
 import io.trino.operator.join.HashBuildAndProbeOperator;
 import io.trino.operator.join.HashBuilderOperator.HashBuilderOperatorFactory;
+import io.trino.operator.join.HashJoinOperator;
 import io.trino.operator.join.JoinBridgeManager;
 import io.trino.operator.join.JoinOperatorFactory;
 import io.trino.operator.join.JoinOperatorFactory.OuterOperatorFactoryResult;
@@ -275,6 +276,7 @@ import static io.trino.SystemSessionProperties.isLateMaterializationEnabled;
 import static io.trino.SystemSessionProperties.isSpillEnabled;
 import static io.trino.SystemSessionProperties.isSpillOrderBy;
 import static io.trino.SystemSessionProperties.isSpillWindowOperator;
+import static io.trino.SystemSessionProperties.useSimpleJoin;
 import static io.trino.operator.DistinctLimitOperator.DistinctLimitOperatorFactory;
 import static io.trino.operator.PipelineExecutionStrategy.GROUPED_EXECUTION;
 import static io.trino.operator.PipelineExecutionStrategy.UNGROUPED_EXECUTION;
@@ -2666,36 +2668,96 @@ public class LocalExecutionPlanner
                 Set<DynamicFilterId> localDynamicFilters,
                 LocalExecutionPlanContext context)
         {
-            // Plan probe
-            PhysicalOperation probeSource = probeNode.accept(this, context);
+            if (useSimpleJoin(context.taskContext.getSession())) {
+                context.setDriverInstanceCount(getTaskConcurrency(session));
+                LocalExecutionPlanContext buildContext = context.createSubContext();
+                PhysicalOperation buildSource = buildNode.accept(this, buildContext);
 
-            // Plan build
-            boolean buildOuter = node.getType() == RIGHT || node.getType() == FULL;
-            boolean spillEnabled = isSpillEnabled(session)
-                    && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"))
-                    && probeSource.getPipelineExecutionStrategy() == UNGROUPED_EXECUTION
-                    && !buildOuter;
-            JoinBridgeManager<PartitionedLookupSourceFactory> lookupSourceFactory =
-                    createLookupSourceFactory(node, buildNode, buildSymbols, buildHashSymbol, probeSource, context, spillEnabled, localDynamicFilters);
+                PhysicalOperation probeSource = probeNode.accept(this, context);
 
-            OperatorFactory operator = createLookupJoin(
-                    node,
-                    probeSource,
-                    probeSymbols,
-                    probeHashSymbol,
-                    lookupSourceFactory,
-                    context,
-                    spillEnabled,
-                    !localDynamicFilters.isEmpty());
+                List<Type> buildTypes = buildSource.getTypes();
+                List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), buildSource.getLayout()));
+                List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), probeSource.getLayout()));
+                ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
+                        .map(buildSource.getTypes()::get)
+                        .collect(toImmutableList());
+                OptionalInt buildHashChannel = buildHashSymbol.map(channelGetter(buildSource))
+                        .map(OptionalInt::of).orElse(OptionalInt.empty());
 
-            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
-            List<Symbol> outputSymbols = node.getOutputSymbols();
-            for (int i = 0; i < outputSymbols.size(); i++) {
-                Symbol symbol = outputSymbols.get(i);
-                outputMappings.put(symbol, i);
+                OptionalInt probeHashChannel = probeHashSymbol.map(channelGetter(probeSource))
+                        .map(OptionalInt::of).orElse(OptionalInt.empty());
+                List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(buildSymbols, buildSource.getLayout()));
+                List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(probeSymbols, probeSource.getLayout()));
+
+                boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
+                        node.getCriteria().stream()
+                                .map(JoinNode.EquiJoinClause::getRight)
+                                .collect(toImmutableSet())
+                                .containsAll(node.getRightOutputSymbols());
+                int expectedPositions = 5000000; //hard code here, subject to change in the future
+
+                boolean eagerCompact = false; //hacky;
+                int partitionCount = getTaskConcurrency(session);
+                //hacky only support inner join for now
+                AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
+                        buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), Optional.of(probeOutputChannels), blockTypeOperators,
+                        expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
+                PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
+
+                OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+                        buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
+
+                OperatorFactory probeSideTableOperator = new HashJoinOperator.HashJoinOperatorFactory(
+                        context.getNextOperatorId(), node.getId(), joinBridge);
+
+                ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+                List<Symbol> outputSymbols = node.getOutputSymbols();
+                for (int i = 0; i < outputSymbols.size(); i++) {
+                    Symbol symbol = outputSymbols.get(i);
+                    outputMappings.put(symbol, i);
+                }
+                context.addDriverFactory(
+                        buildContext.isInputDriver(),
+                        false,
+                        new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
+                                buildSource),
+                        buildContext.getDriverInstanceCount());
+
+                return new PhysicalOperation(probeSideTableOperator, outputMappings.build(), context,
+                        probeSource);
             }
+            else {
+                // Plan probe
+                PhysicalOperation probeSource = probeNode.accept(this, context);
 
-            return new PhysicalOperation(operator, outputMappings.build(), context, probeSource);
+                // Plan build
+                boolean buildOuter = node.getType() == RIGHT || node.getType() == FULL;
+                boolean spillEnabled = isSpillEnabled(session)
+                        && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"))
+                        && probeSource.getPipelineExecutionStrategy() == UNGROUPED_EXECUTION
+                        && !buildOuter;
+                JoinBridgeManager<PartitionedLookupSourceFactory> lookupSourceFactory =
+                        createLookupSourceFactory(node, buildNode, buildSymbols, buildHashSymbol, probeSource, context, spillEnabled, localDynamicFilters);
+
+                OperatorFactory operator = createLookupJoin(
+                        node,
+                        probeSource,
+                        probeSymbols,
+                        probeHashSymbol,
+                        lookupSourceFactory,
+                        context,
+                        spillEnabled,
+                        !localDynamicFilters.isEmpty());
+
+                ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+                List<Symbol> outputSymbols = node.getOutputSymbols();
+                for (int i = 0; i < outputSymbols.size(); i++) {
+                    Symbol symbol = outputSymbols.get(i);
+                    outputMappings.put(symbol, i);
+                }
+
+                return new PhysicalOperation(operator, outputMappings.build(), context, probeSource);
+            }
         }
 
         private PhysicalOperation createAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)

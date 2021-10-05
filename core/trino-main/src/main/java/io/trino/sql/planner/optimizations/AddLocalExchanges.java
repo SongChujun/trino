@@ -78,6 +78,7 @@ import static io.trino.SystemSessionProperties.getTaskConcurrency;
 import static io.trino.SystemSessionProperties.getTaskWriterCount;
 import static io.trino.SystemSessionProperties.isDistributedSortEnabled;
 import static io.trino.SystemSessionProperties.isSpillEnabled;
+import static io.trino.SystemSessionProperties.useSimpleJoin;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
@@ -707,20 +708,38 @@ public class AddLocalExchanges
         @Override
         public PlanWithProperties visitJoin(JoinNode node, StreamPreferredProperties parentPreferences)
         {
-            PlanWithProperties probe = planAndEnforce(
-                    node.getLeft(),
-                    defaultParallelism(session),
-                    parentPreferences.constrainTo(node.getLeft().getOutputSymbols()).withDefaultParallelism(session));
-
-            if (isSpillEnabled(session)) {
-                if (probe.getProperties().getDistribution() != FIXED) {
-                    // Disable spill for joins over non-fixed streams as otherwise we would need to insert local exchange.
-                    // Such local exchanges can hurt performance when spill is not triggered.
-                    // When spill is not triggered it should not induce performance penalty.
-                    node = node.withSpillable(false);
+            PlanWithProperties probe;
+            if (useSimpleJoin(session)) {
+                List<Symbol> probeHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
+                StreamPreferredProperties probePreference;
+                if (getTaskConcurrency(session) > 1) {
+                    probePreference = exactlyPartitionedOn(probeHashSymbols);
                 }
                 else {
-                    node = node.withSpillable(true);
+                    probePreference = singleStream();
+                }
+
+                probe = planAndEnforce(
+                        node.getLeft(),
+                        probePreference,
+                        probePreference);
+            }
+            else {
+                probe = planAndEnforce(
+                        node.getLeft(),
+                        defaultParallelism(session),
+                        parentPreferences.constrainTo(node.getLeft().getOutputSymbols()).withDefaultParallelism(session));
+
+                if (isSpillEnabled(session)) {
+                    if (probe.getProperties().getDistribution() != FIXED) {
+                        // Disable spill for joins over non-fixed streams as otherwise we would need to insert local exchange.
+                        // Such local exchanges can hurt performance when spill is not triggered.
+                        // When spill is not triggered it should not induce performance penalty.
+                        node = node.withSpillable(false);
+                    }
+                    else {
+                        node = node.withSpillable(true);
+                    }
                 }
             }
 
