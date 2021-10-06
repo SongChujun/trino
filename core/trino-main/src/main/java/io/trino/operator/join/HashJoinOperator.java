@@ -14,45 +14,37 @@
 package io.trino.operator.join;
 
 import com.google.common.util.concurrent.ListenableFuture;
-import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.DriverContext;
-import io.trino.operator.HashCollisionsCounter;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
 import io.trino.sql.planner.plan.PlanNodeId;
 
+import java.util.List;
+import java.util.Stack;
+
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-public class HashBuildAndProbeOperator
+public class HashJoinOperator
         implements Operator
 {
-    private static final double INDEX_COMPACTION_ON_REVOCATION_TARGET = 0.8;
     private final OperatorContext operatorContext;
-    private final LocalMemoryContext localUserMemoryContext;
-    private final LocalMemoryContext localRevocableMemoryContext;
-    private final HashCollisionsCounter hashCollisionsCounter;
-    private final AdaptiveJoinBridge joinBridge;
+    private final Stack<Page> outputPageBuffer;
+    private AdaptiveJoinBridge joinBridge;
+    private final HashBuildAndProbeJoinProcessor joinProcessor;
     private boolean isFinished;
-    private final int partitioningIndex;
-    private int cnt;
 
-    public HashBuildAndProbeOperator(
+    public HashJoinOperator(
             OperatorContext operatorContext,
             AdaptiveJoinBridge joinBridge,
-            int partitioningIndex)
+            HashBuildAndProbeJoinProcessor joinProcessor)
     {
         this.operatorContext = operatorContext;
-        this.localUserMemoryContext = operatorContext.localUserMemoryContext();
-        this.localRevocableMemoryContext = operatorContext.localRevocableMemoryContext();
-        this.hashCollisionsCounter = new HashCollisionsCounter(operatorContext);
-        operatorContext.setInfoSupplier(hashCollisionsCounter);
-        this.joinBridge = joinBridge;
-        this.partitioningIndex = partitioningIndex;
-        isFinished = false;
-        this.cnt = 0;
+        this.joinBridge = requireNonNull(joinBridge);
+        this.joinProcessor = requireNonNull(joinProcessor);
+        this.outputPageBuffer = new Stack<>();
     }
 
     @Override
@@ -64,85 +56,75 @@ public class HashBuildAndProbeOperator
     @Override
     public ListenableFuture<?> isBlocked()
     {
-        return NOT_BLOCKED;
+        return joinBridge.getBuildFinishedFuture();
     }
 
     @Override
     public boolean needsInput()
     {
-        return true;
+        return joinBridge.getBuildFinishedFuture().isDone();
     }
 
     @Override
     public void addInput(Page page)
     {
-        this.cnt += page.getPositionCount();
-        this.joinBridge.getHashTable(partitioningIndex).addPage(page);
-    }
-
-    @Override
-    public ListenableFuture<?> startMemoryRevoke()
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void finishMemoryRevoke()
-    {
-        throw new UnsupportedOperationException();
+        List<Page> joinResult = joinProcessor.join(page);
+        if (joinResult != null) {
+            outputPageBuffer.addAll(joinResult);
+        }
     }
 
     @Override
     public Page getOutput()
     {
-        return null;
+        if (outputPageBuffer.isEmpty()) {
+            return null;
+        }
+        else {
+            return outputPageBuffer.pop();
+        }
+    }
+
+    @Override
+    public boolean isFinished()
+    {
+        return isFinished && outputPageBuffer.isEmpty();
     }
 
     @Override
     public void finish()
     {
         isFinished = true;
-        this.joinBridge.setBuildFinished(partitioningIndex);
     }
 
-    @Override
-    public boolean isFinished()
-    {
-        return isFinished;
-    }
-
-//    @Override
-//    public void close()
-//    {
-////        return;//subject to change
-//    }
-
-    public static class HashBuildAndProbeOperatorFactory
+    public static class HashJoinOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final AdaptiveJoinBridge joinBridge;
+        private AdaptiveJoinBridge joinBridge;
+        private final HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory;
         private boolean closed;
 
-        public HashBuildAndProbeOperatorFactory(
+        public HashJoinOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                AdaptiveJoinBridge joinBridge)
+                AdaptiveJoinBridge joinBridge,
+                HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
             this.joinBridge = joinBridge;
+            this.joinProcessorFactory = requireNonNull(joinProcessorFactory, "lookupSourceFactoryManager is null");
         }
 
         @Override
-        public HashBuildAndProbeOperator createOperator(DriverContext driverContext)
+        public HashJoinOperator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuildAndProbeOperator.class.getSimpleName());
-            Integer index = driverContext.getLocalPartitioningIndex();
-            return new HashBuildAndProbeOperator(
-                    operatorContext, joinBridge, index);
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashJoinOperator.class.getSimpleName());
+//            Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
+            return new HashJoinOperator(operatorContext, joinBridge, joinProcessorFactory.createHashBuildAndProbeJoinProcessor());
         }
 
         @Override

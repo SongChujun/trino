@@ -25,14 +25,11 @@ import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -57,10 +54,8 @@ public class OuterJoinResultProcessingOperator
     private boolean isFinished;
     private Map<Integer, Set<String>> duplicateSetMap;
     private PartitionFunction partitionFunction;
-    private final Lock lock;
-    private int outerEntryCnt;
-    private int outputEntryCnt;
-    private int joinResultEntryCnt;
+    private long extractTime;
+    private long overallTime;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -73,8 +68,7 @@ public class OuterJoinResultProcessingOperator
             AdaptiveJoinBridge joinBridge,
             HashBuildAndProbeJoinProcessor joinProcessor,
             Map<Integer, Set<String>> duplicateSetMap,
-            PartitionFunction partitionFunction,
-            Lock lock)
+            PartitionFunction partitionFunction)
     {
         this.operatorContext = operatorContext;
         this.isInnerJoin = isInnerJoin;
@@ -89,10 +83,8 @@ public class OuterJoinResultProcessingOperator
         this.inputPageBuffer = new Stack<>();
         this.duplicateSetMap = duplicateSetMap;
         this.partitionFunction = partitionFunction;
-        this.lock = lock;
-        this.outerEntryCnt = 0;
-        this.outputEntryCnt = 0;
-        this.joinResultEntryCnt = 0;
+        this.extractTime = 0;
+        this.overallTime = 0;
     }
 
     @Override
@@ -122,18 +114,14 @@ public class OuterJoinResultProcessingOperator
 
     private void processPage()
     {
+        long startTime = System.currentTimeMillis();
         Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
-//        this.outputEntryCnt +=extractedPages[1].getPositionCount();
-        this.outerEntryCnt += extractedPages[0].getPositionCount();
+        extractTime += System.currentTimeMillis() - startTime;
         List<Page> joinResult = joinProcessor.join(extractedPages[0]);
+        overallTime += System.currentTimeMillis() - startTime;
         if (joinResult != null) {
-            joinResultEntryCnt += joinResult.stream().map(Page::getPositionCount).reduce(0, Integer::sum);
-//            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
             outputPageBuffer.addAll(joinResult);
-//            joinResult.forEach(outputPageBuffer::add);
-//            outputPageBuffer.add(joinResult);
         }
-        outputEntryCnt += extractedPages[1].getPositionCount();
         outputPageBuffer.add(extractedPages[1]);
     }
 
@@ -151,7 +139,6 @@ public class OuterJoinResultProcessingOperator
             String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
             int partition = partitionFunction.getPartition(page, i);
 
-//            this.lock.lock();
             if (duplicateSetMap.get(partition).contains(primaryKeyStr)) {
                 duplicateIndicators[i] = true;
             }
@@ -159,7 +146,6 @@ public class OuterJoinResultProcessingOperator
                 duplicateSetMap.get(partition).add(primaryKeyStr);
                 duplicateIndicators[i] = false;
             }
-//            this.lock.unlock();
 
             if ((leftNull) && (!rightNull)) {
                 nullIndicators[i] = 0;
@@ -244,7 +230,6 @@ public class OuterJoinResultProcessingOperator
         private final PartitionFunction partitionFunction;
         private final Map<Integer, Set<String>> duplicateSetMap;
         private boolean closed;
-        private Lock lock;
 
         public OuterJoinResultProcessingOperatorFactory(
                 int operatorId,
@@ -273,7 +258,6 @@ public class OuterJoinResultProcessingOperator
             this.duplicateSetMap = new HashMap<>();
             IntStream.range(0, partitioningCnt).forEach(i -> duplicateSetMap.put(i, ConcurrentHashMap.newKeySet()));
             this.partitionFunction = requireNonNull(partitionFunction);
-            this.lock = new ReentrantLock();
         }
 
         @Override
@@ -283,7 +267,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             return new OuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
-                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge, joinProcessorFactory.createHashBuildAndProbeJoinProcessor(), duplicateSetMap, partitionFunction, lock);
+                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge, joinProcessorFactory.createHashBuildAndProbeJoinProcessor(), duplicateSetMap, partitionFunction);
         }
 
         @Override

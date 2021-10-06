@@ -123,6 +123,7 @@ public final class SystemSessionProperties
     public static final String SKIP_REDUNDANT_SORT = "skip_redundant_sort";
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
     public static final String USE_HYBRID_JOIN = "use_hybrid_join";
+    public static final String USE_SIMPLE_JOIN = "use_simple_join";
     public static final String HYBRID_JOIN_PUSHDOWN_RATIO = "hybrid_join_pushdown_ratio";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
     public static final String LATE_MATERIALIZATION = "late_materialization";
@@ -559,6 +560,11 @@ public final class SystemSessionProperties
                         USE_HYBRID_JOIN,
                         "use hybrid join",
                         false,
+                        false),
+                booleanProperty(
+                        USE_SIMPLE_JOIN,
+                        "use hybrid join",
+                        true,
                         false),
                 doubleProperty(
                         HYBRID_JOIN_PUSHDOWN_RATIO,
@@ -1074,6 +1080,11 @@ public final class SystemSessionProperties
     public static boolean isHybridJoinEnabled(Session session)
     {
         return session.getSystemProperty(USE_HYBRID_JOIN, Boolean.class);
+    }
+
+    public static boolean isSimpleJoinEnabled(Session session)
+    {
+        return session.getSystemProperty(USE_SIMPLE_JOIN, Boolean.class);
     }
 
     public static double getHybridJoinPushdownRatio(Session session)

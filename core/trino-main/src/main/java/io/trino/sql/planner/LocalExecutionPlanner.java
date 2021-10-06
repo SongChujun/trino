@@ -114,6 +114,7 @@ import io.trino.operator.join.AdaptiveJoinBridge;
 import io.trino.operator.join.HashBuildAndProbeJoinProcessor;
 import io.trino.operator.join.HashBuildAndProbeOperator;
 import io.trino.operator.join.HashBuilderOperator.HashBuilderOperatorFactory;
+import io.trino.operator.join.HashJoinOperator;
 import io.trino.operator.join.JoinBridgeManager;
 import io.trino.operator.join.JoinOperatorFactory;
 import io.trino.operator.join.JoinOperatorFactory.OuterOperatorFactoryResult;
@@ -276,6 +277,7 @@ import static io.trino.SystemSessionProperties.getTaskWriterCount;
 import static io.trino.SystemSessionProperties.isEnableLargeDynamicFilters;
 import static io.trino.SystemSessionProperties.isExchangeCompressionEnabled;
 import static io.trino.SystemSessionProperties.isLateMaterializationEnabled;
+import static io.trino.SystemSessionProperties.isSimpleJoinEnabled;
 import static io.trino.SystemSessionProperties.isSpillEnabled;
 import static io.trino.SystemSessionProperties.isSpillOrderBy;
 import static io.trino.SystemSessionProperties.isSpillWindowOperator;
@@ -2670,6 +2672,66 @@ public class LocalExecutionPlanner
                 Set<DynamicFilterId> localDynamicFilters,
                 LocalExecutionPlanContext context)
         {
+            if (isSimpleJoinEnabled(context.taskContext.getSession())) {
+                context.setDriverInstanceCount(getTaskConcurrency(session));
+
+                LocalExecutionPlanContext buildContext = context.createSubContext();
+                PhysicalOperation buildSource = buildNode.accept(this, buildContext);
+
+                PhysicalOperation probeSource = probeNode.accept(this, context);
+
+                List<Type> buildTypes = buildSource.getTypes();
+                List<Integer> buildOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), buildSource.getLayout()));
+                List<Integer> probeOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), probeSource.getLayout()));
+                ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
+                        .map(buildSource.getTypes()::get)
+                        .collect(toImmutableList());
+                OptionalInt buildHashChannel = node.getRightHashSymbol().map(channelGetter(buildSource))
+                        .map(OptionalInt::of).orElse(OptionalInt.empty());
+
+                OptionalInt probeHashChannel = node.getLeftHashSymbol().map(channelGetter(probeSource))
+                        .map(OptionalInt::of).orElse(OptionalInt.empty());
+
+                List<Integer> buildChannels = ImmutableList.copyOf(getChannelsForSymbols(buildSymbols, buildSource.getLayout()));
+                List<Integer> probeChannels = ImmutableList.copyOf(getChannelsForSymbols(probeSymbols, probeSource.getLayout()));
+
+                boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
+                        node.getCriteria().stream()
+                                .map(JoinNode.EquiJoinClause::getRight)
+                                .collect(toImmutableSet())
+                                .containsAll(node.getRightOutputSymbols());
+                int expectedPositions = 5000000; //hard code here, subject to change in the future
+
+                boolean eagerCompact = false; //hacky;
+                int partitionCount = getTaskConcurrency(session);
+                //hacky only support inner join for now
+                AdaptiveJoinBridge joinBridge = new AdaptiveJoinBridge(buildTypes, buildHashChannel, probeHashChannel,
+                        buildChannels, probeChannels, buildOutputTypes, Optional.of(buildOutputChannels), Optional.of(probeOutputChannels), blockTypeOperators,
+                        expectedPositions, LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch, eagerCompact, partitionCount);
+                LookupSource partitionedLookupSource = PartitionedLookupSource.createPartitionedLookupSource(joinBridge.getHashTables(), buildChannels.stream().map(buildSource.getTypes()::get).collect(toImmutableList()), false, blockTypeOperators);
+                HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory = new HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory(buildOutputTypes, new JoinProbe.JoinProbeFactory(probeOutputChannels.stream().mapToInt(i -> i).toArray(), probeChannels, probeHashChannel), partitionedLookupSource,
+                        LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch);
+
+                OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
+                        buildContext.getNextOperatorId(), node.getId(), joinBridge);
+                OperatorFactory probeSideTableOperator = new HashJoinOperator.HashJoinOperatorFactory(
+                        context.getNextOperatorId(), node.getId(), joinBridge, joinProcessorFactory);
+                ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+                List<Symbol> outputSymbols = node.getOutputSymbols();
+                for (int i = 0; i < outputSymbols.size(); i++) {
+                    Symbol symbol = outputSymbols.get(i);
+                    outputMappings.put(symbol, i);
+                }
+                context.addDriverFactory(
+                        buildContext.isInputDriver(),
+                        false,
+                        new PhysicalOperation(buildSideTableOperator, outputMappings.build(), buildContext,
+                                buildSource),
+                        buildContext.getDriverInstanceCount());
+
+                return new PhysicalOperation(probeSideTableOperator, outputMappings.build(), context,
+                        probeSource);
+            }
             // Plan probe
             PhysicalOperation probeSource = probeNode.accept(this, context);
 
@@ -2746,12 +2808,11 @@ public class LocalExecutionPlanner
             LookupSource partitionedLookupSource = PartitionedLookupSource.createPartitionedLookupSource(joinBridge.getHashTables(), buildChannels.stream().map(buildSource.getTypes()::get).collect(toImmutableList()), false, blockTypeOperators);
             HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory joinProcessorFactory = new HashBuildAndProbeJoinProcessor.HashBuildAndProbeJoinProcessorFactory(buildOutputTypes, new JoinProbe.JoinProbeFactory(probeOutputChannels.stream().mapToInt(i -> i).toArray(), probeChannels, probeHashChannel), partitionedLookupSource,
                     LookupJoinOperatorFactory.JoinType.INNER, outputSingleMatch);
-            PartitionFunction buildPartitionFunction = getLocalPartitionGenerator(buildHashChannel, buildChannels, buildTypes, partitionCount);
             PartitionFunction outerPartitionFunction = getLocalPartitionGenerator(node.getOuterHashSymbol().map(channelGetter(outerSource))
                     .map(OptionalInt::of).orElse(OptionalInt.empty()), probeChannels, outerSource.getTypes(), partitionCount);
 
             OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
-                    buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
+                    buildContext.getNextOperatorId(), node.getId(), joinBridge);
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
                     context.getNextOperatorId(), node.getId(), joinBridge, joinProcessorFactory, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
                     ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
