@@ -40,7 +40,6 @@ public class OuterJoinResultProcessingOperator
     private final OperatorContext operatorContext;
     private final boolean isInnerJoin;
     private final Stack<Page> outputPageBuffer;
-    private final Stack<Page> inputPageBuffer;
     private final List<Integer> leftPrimaryKeyChannels;
     private final List<Integer> leftJoinChannels;
     private final List<Integer> rightJoinChannels;
@@ -72,7 +71,6 @@ public class OuterJoinResultProcessingOperator
         this.outputChannels = requireNonNull(outputChannels);
         this.leftColumnsSize = requireNonNull(leftColumnsSize);
         this.outputPageBuffer = new Stack<>();
-        this.inputPageBuffer = new Stack<>();
         this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
         this.duplicateSet = new HashSet<>(150000);
         this.allExtractTime = 0;
@@ -100,18 +98,12 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        inputPageBuffer.add(page);
-        processPage();
-    }
-
-    private void processPage()
-    {
-        long processStartTime = System.nanoTime();
-        Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
-        duplicateDetectionTime += System.nanoTime() - processStartTime;
+        long processStartTime = System.currentTimeMillis();
+        Page[] extractedPages = extractPages(page, isInnerJoin);
+        duplicateDetectionTime += System.currentTimeMillis() - processStartTime;
 //        this.outputEntryCnt +=extractedPages[1].getPositionCount();
         List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
-        allExtractTime += System.nanoTime() - processStartTime;
+        allExtractTime += System.currentTimeMillis() - processStartTime;
         if (joinResult != null) {
 //            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
             outputPageBuffer.addAll(joinResult);
@@ -195,16 +187,13 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean isFinished()
     {
-        return isFinished && outputPageBuffer.isEmpty() && inputPageBuffer.isEmpty();
+        return isFinished && outputPageBuffer.isEmpty();
     }
 
     @Override
     public void finish()
     {
         isFinished = true;
-        while (!inputPageBuffer.isEmpty()) {
-            processPage();
-        }
     }
 
     public static class OuterJoinResultProcessingOperatorFactory
