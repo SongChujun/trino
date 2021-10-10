@@ -43,7 +43,6 @@ public class OuterJoinResultProcessingOperator
     private final OperatorContext operatorContext;
     private final boolean isInnerJoin;
     private final Stack<Page> outputPageBuffer;
-    private final Stack<Page> inputPageBuffer;
     private final List<Integer> leftPrimaryKeyChannels;
     private final List<Integer> leftJoinChannels;
     private final List<Integer> rightJoinChannels;
@@ -80,7 +79,6 @@ public class OuterJoinResultProcessingOperator
         this.outputChannels = requireNonNull(outputChannels);
         this.leftColumnsSize = requireNonNull(leftColumnsSize);
         this.outputPageBuffer = new Stack<>();
-        this.inputPageBuffer = new Stack<>();
         this.duplicateSetMap = duplicateSetMap;
         this.partitionFunction = partitionFunction;
         this.extractTime = 0;
@@ -108,14 +106,8 @@ public class OuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        inputPageBuffer.add(page);
-        processPage();
-    }
-
-    private void processPage()
-    {
         long startTime = System.currentTimeMillis();
-        Page[] extractedPages = extractPages(inputPageBuffer.pop(), isInnerJoin);
+        Page[] extractedPages = extractPages(page, isInnerJoin);
         extractTime += System.currentTimeMillis() - startTime;
         List<Page> joinResult = joinProcessor.join(extractedPages[0]);
         overallTime += System.currentTimeMillis() - startTime;
@@ -202,16 +194,13 @@ public class OuterJoinResultProcessingOperator
     @Override
     public boolean isFinished()
     {
-        return isFinished && outputPageBuffer.isEmpty() && inputPageBuffer.isEmpty();
+        return isFinished && outputPageBuffer.isEmpty();
     }
 
     @Override
     public void finish()
     {
         isFinished = true;
-        while (!inputPageBuffer.isEmpty()) {
-            processPage();
-        }
     }
 
     public static class OuterJoinResultProcessingOperatorFactory

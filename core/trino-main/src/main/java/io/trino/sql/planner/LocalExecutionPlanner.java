@@ -2700,7 +2700,7 @@ public class LocalExecutionPlanner
                                 .map(JoinNode.EquiJoinClause::getRight)
                                 .collect(toImmutableSet())
                                 .containsAll(node.getRightOutputSymbols());
-                int expectedPositions = 5000000; //hard code here, subject to change in the future
+                int expectedPositions = 10000000; //hard code here, subject to change in the future
 
                 boolean eagerCompact = false; //hacky;
                 int partitionCount = getTaskConcurrency(session);
@@ -2797,7 +2797,7 @@ public class LocalExecutionPlanner
                             .map(JoinNode.EquiJoinClause::getRight)
                             .collect(toImmutableSet())
                             .containsAll(node.getBuildOutputSymbols());
-            int expectedPositions = 5000000; //hard code here, subject to change in the future
+            int expectedPositions = 10000000; //hard code here, subject to change in the future
 
             boolean eagerCompact = false; //hacky;
             int partitionCount = getTaskConcurrency(session);
