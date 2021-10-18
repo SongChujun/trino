@@ -121,42 +121,39 @@ public class OuterJoinResultProcessingOperator
     //input format: probeSideData, outerSideData
     private Page[] extractPages(Page page, boolean isInnerJoin)
     {
-        //nullIndicators encoding: 0 stands for null, t, 1 stands for s, null, 2 stands for s,t ,3 for null,null
-        int[] nullIndicators = new int[page.getPositionCount()];
+        boolean[] nullIndicators = new boolean[page.getPositionCount()];
         boolean[] duplicateIndicators = new boolean[page.getPositionCount()];
+        int[] leftRetainedPositions = new int[page.getPositionCount()];
+        int[] outputRetainedPositions = new int[page.getPositionCount()];
+        int leftRetainedPositionsPtr = 0;
+        int outputRetainedPositionsPtr = 0;
         for (int i = 0; i < page.getPositionCount(); i++) {
-            int finalI = i;
-            boolean leftNull = leftJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
-            boolean rightNull = rightJoinChannels.stream().anyMatch(ch -> page.getBlock(ch).isNull(finalI));
+            boolean rightNull = page.getBlock(rightJoinChannels.get(0)).isNull(i);
             String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
             int partition = partitionFunction.getPartition(page, i);
-
             if (duplicateSetMap.get(partition).contains(primaryKeyStr)) {
                 duplicateIndicators[i] = true;
             }
             else {
                 duplicateSetMap.get(partition).add(primaryKeyStr);
                 duplicateIndicators[i] = false;
+                leftRetainedPositions[leftRetainedPositionsPtr] = i;
+                leftRetainedPositionsPtr += 1;
             }
-
-            if ((leftNull) && (!rightNull)) {
-                nullIndicators[i] = 0;
-            }
-            else if ((!leftNull) && (rightNull)) {
-                nullIndicators[i] = 1;
-            }
-            else if ((!leftNull) && (!rightNull)) {
-                nullIndicators[i] = 2;
+            if (rightNull) {
+                nullIndicators[i] = true;
             }
             else {
-                nullIndicators[i] = 3;
+                nullIndicators[i] = false;
+                outputRetainedPositions[outputRetainedPositionsPtr] = i;
+                outputRetainedPositionsPtr += 1;
             }
         }
-        int[] leftRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 1 || nullIndicators[idx] == 2) && !duplicateIndicators[idx]).toArray();
-        int[] outputRetainedPositions = IntStream.range(0, nullIndicators.length).filter(idx -> (nullIndicators[idx] == 2)).toArray();
-        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositions.length).getColumns(Stream.concat(IntStream.range(0, leftColumnsSize).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
-        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositions.length).getColumns(outputChannels.stream().mapToInt(i -> i).toArray());
+        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositionsPtr).getColumns(Stream.concat(IntStream.range(0, leftColumnsSize).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
+        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositionsPtr).getColumns(outputChannels.stream().mapToInt(i -> i).toArray());
         return new Page[] {leftPage, outputPage};
+
+        //nullIndicators encoding: 0 stands for null, t, 1 stands for s, null, 2 stands for s,t ,3 for null,null
     }
 
     private String tupleToString(Page page, List<Integer> channels, int row)
