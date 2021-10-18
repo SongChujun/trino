@@ -118,7 +118,7 @@ public class QueryBuilder
         verify(!joinConditions.isEmpty(), "joinConditions is empty");
 
         String query = format(
-                "SELECT %s, %s FROM (%s) l %s (%s) r ON %s",
+                "SELECT %s, %s FROM (%s) l %s (%s) r ON %s order by %s",
                 formatAssignments("l", leftAssignments),
                 formatAssignments("r", rightAssignments),
                 leftSource.getQuery(),
@@ -126,7 +126,7 @@ public class QueryBuilder
                 rightSource.getQuery(),
                 joinConditions.stream()
                         .map(this::formatCondition)
-                        .collect(joining(" AND ")));
+                        .collect(joining(" AND ")), new ArrayList<>(leftAssignments.values()).get(0));
         List<QueryParameter> parameters = ImmutableList.<QueryParameter>builder()
                 .addAll(leftSource.getParameters())
                 .addAll(rightSource.getParameters())
