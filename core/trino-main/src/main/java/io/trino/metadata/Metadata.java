@@ -448,6 +448,7 @@ public interface Metadata
             TableHandle left,
             TableHandle right,
             List<JoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<String, ColumnHandle> leftAssignments,
             Map<String, ColumnHandle> rightAssignments,
             JoinStatistics statistics);

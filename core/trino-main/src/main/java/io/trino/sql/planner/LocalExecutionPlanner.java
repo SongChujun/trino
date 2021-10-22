@@ -2807,7 +2807,10 @@ public class LocalExecutionPlanner
             OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
                     context.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
                     ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
-                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size());
+                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size(), getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout()).stream()
+                    .map(outerSource.getTypes()::get)
+                    .map(blockTypeOperators::getEqualOperator)
+                    .collect(toImmutableList()));
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();

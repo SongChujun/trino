@@ -1100,6 +1100,7 @@ public interface ConnectorMetadata
             ConnectorTableHandle left,
             ConnectorTableHandle right,
             List<JoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<String, ColumnHandle> leftAssignments,
             Map<String, ColumnHandle> rightAssignments,
             JoinStatistics statistics)

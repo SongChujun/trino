@@ -19,19 +19,16 @@ import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
-import io.trino.spi.block.IntArrayBlock;
-import io.trino.spi.block.LongArrayBlock;
+import io.trino.spi.block.Block;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.type.BlockTypeOperators;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Stack;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Verify.verify;
 import static java.util.Objects.requireNonNull;
 
 public class OuterJoinResultProcessingOperator
@@ -51,6 +48,9 @@ public class OuterJoinResultProcessingOperator
     private Set<String> duplicateSet;
     private long allExtractTime;
     private long duplicateDetectionTime;
+    List<BlockTypeOperators.BlockPositionEqual> equalOperators;
+    private Page currentPrimaryKeyPage;
+    private int currentPrimaryKeyRow;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -60,7 +60,8 @@ public class OuterJoinResultProcessingOperator
             List<Integer> rightJoinChannels,
             List<Integer> outputChannels,
             Integer leftColumnsSize,
-            HashBuildAndProbeTable table)
+            HashBuildAndProbeTable table,
+            List<BlockTypeOperators.BlockPositionEqual> equalOperators)
     {
         this.operatorContext = operatorContext;
         this.isInnerJoin = isInnerJoin;
@@ -75,6 +76,8 @@ public class OuterJoinResultProcessingOperator
         this.duplicateSet = new HashSet<>(150000);
         this.allExtractTime = 0;
         this.duplicateDetectionTime = 0;
+        this.equalOperators = equalOperators;
+        this.currentPrimaryKeyPage = null;
     }
 
     @Override
@@ -123,41 +126,53 @@ public class OuterJoinResultProcessingOperator
         int outputRetainedPositionsPtr = 0;
         for (int i = 0; i < page.getPositionCount(); i++) {
             boolean rightNull = page.getBlock(rightJoinChannels.get(0)).isNull(i);
-            String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
-            if (!duplicateSet.contains(primaryKeyStr)) {
-                duplicateSet.add(primaryKeyStr);
+            if (!primaryKeyColumnsEqual(page, i)) {
                 leftRetainedPositions[leftRetainedPositionsPtr] = i;
                 leftRetainedPositionsPtr += 1;
             }
-            if (!rightNull) {
+            if (rightNull) {
+//                leftRetainedPositions[leftRetainedPositionsPtr] = i;
+//                leftRetainedPositionsPtr += 1;
+            }
+            else {
                 outputRetainedPositions[outputRetainedPositionsPtr] = i;
                 outputRetainedPositionsPtr += 1;
             }
         }
-        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositionsPtr).getColumns(Stream.concat(IntStream.range(0, leftColumnsSize).boxed(), Stream.of(page.getChannelCount() - 1)).mapToInt(i -> i).toArray());
-        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositionsPtr).getColumns(outputChannels.stream().mapToInt(i -> i).toArray());
+
+        int[] leftColumnIdxs = new int[leftColumnsSize + 1];
+        for (int i = 0; i < leftColumnsSize; i++) {
+            leftColumnIdxs[i] = i;
+        }
+
+        int[] outputColumnIdxs = new int[outputChannels.size()];
+        for (int i = 0; i < outputChannels.size(); i++) {
+            outputColumnIdxs[i] = outputChannels.get(i);
+        }
+        leftColumnIdxs[leftColumnsSize] = page.getChannelCount() - 1;
+        Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositionsPtr).getColumns(leftColumnIdxs);
+        Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositionsPtr).getColumns(outputColumnIdxs);
         return new Page[] {leftPage, outputPage};
     }
 
-    private String tupleToString(Page page, List<Integer> channels, int row)
+    private Boolean primaryKeyColumnsEqual(Page page, int row)
     {
-        StringBuilder res = new StringBuilder();
-        for (Integer channel : channels) {
-            if (page.getBlock(channel) instanceof LongArrayBlock) {
-                LongArrayBlock block = (LongArrayBlock) page.getBlock(channel);
-                res.append(block.getLong(row, 0));
-                res.append('*');
-            }
-            else if (page.getBlock(channel) instanceof IntArrayBlock) {
-                IntArrayBlock block = (IntArrayBlock) page.getBlock(channel);
-                res.append(block.getInt(row, 0));
-                res.append('*');
-            }
-            else {
-                verify(false);
+        if (currentPrimaryKeyPage == null) {
+            currentPrimaryKeyPage = page;
+            currentPrimaryKeyRow = row;
+            return false;
+        }
+        for (int i = 0; i < leftPrimaryKeyChannels.size(); i++) {
+            BlockTypeOperators.BlockPositionEqual equalOperator = equalOperators.get(i);
+            Block comingBlock = page.getBlock(leftPrimaryKeyChannels.get(i));
+            Block currentBlock = currentPrimaryKeyPage.getBlock(leftPrimaryKeyChannels.get(i));
+            if (!equalOperator.equal(currentBlock, currentPrimaryKeyRow, comingBlock, row)) {
+                currentPrimaryKeyPage = page;
+                currentPrimaryKeyRow = row;
+                return false;
             }
         }
-        return res.toString();
+        return true;
     }
 
     @Override
@@ -195,6 +210,7 @@ public class OuterJoinResultProcessingOperator
         private final List<Integer> rightJoinChannels;
         private final List<Integer> outputChannels;
         private final Integer leftColumnsSize;
+        private final List<BlockTypeOperators.BlockPositionEqual> equalOperators;
         private boolean closed;
 
         public OuterJoinResultProcessingOperatorFactory(
@@ -206,7 +222,8 @@ public class OuterJoinResultProcessingOperator
                 List<Integer> leftJoinChannels,
                 List<Integer> rightJoinChannels,
                 List<Integer> outputChannels,
-                Integer leftColumnsSize)
+                Integer leftColumnsSize,
+                List<BlockTypeOperators.BlockPositionEqual> equalOperators)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -217,6 +234,7 @@ public class OuterJoinResultProcessingOperator
             this.rightJoinChannels = requireNonNull(rightJoinChannels);
             this.outputChannels = requireNonNull(outputChannels);
             this.leftColumnsSize = requireNonNull(leftColumnsSize);
+            this.equalOperators = requireNonNull(equalOperators);
         }
 
         @Override
@@ -226,7 +244,7 @@ public class OuterJoinResultProcessingOperator
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             return new OuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
-                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge.getHashTable(localPartitioningIndex));
+                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge.getHashTable(localPartitioningIndex), equalOperators);
         }
 
         @Override

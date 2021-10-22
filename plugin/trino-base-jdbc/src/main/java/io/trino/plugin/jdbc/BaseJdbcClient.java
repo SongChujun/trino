@@ -476,6 +476,7 @@ public abstract class BaseJdbcClient
             PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> rightAssignments,
             Map<JdbcColumnHandle, String> leftAssignments,
             JoinStatistics statistics)
@@ -493,6 +494,7 @@ public abstract class BaseJdbcClient
                 leftSource,
                 rightSource,
                 joinConditions,
+                orderByColumns,
                 leftAssignments,
                 rightAssignments));
     }

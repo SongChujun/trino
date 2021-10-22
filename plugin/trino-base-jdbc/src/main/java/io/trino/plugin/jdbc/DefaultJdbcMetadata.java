@@ -321,6 +321,7 @@ public class DefaultJdbcMetadata
             ConnectorTableHandle left,
             ConnectorTableHandle right,
             List<JoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<String, ColumnHandle> leftAssignments,
             Map<String, ColumnHandle> rightAssignments,
             JoinStatistics statistics)
@@ -375,12 +376,16 @@ public class DefaultJdbcMetadata
             jdbcJoinConditions.add(new JdbcJoinCondition(leftColumn.get(), joinCondition.getOperator(), rightColumn.get()));
         }
 
+        ImmutableList.Builder<ColumnHandle> jdbcOrderByColumns = ImmutableList.builder();
+        orderByColumns.forEach(jdbcOrderByColumns::add);
+
         Optional<PreparedQuery> joinQuery = jdbcClient.implementJoin(
                 session,
                 joinType,
                 asPreparedQuery(leftHandle),
                 asPreparedQuery(rightHandle),
                 jdbcJoinConditions.build(),
+                jdbcOrderByColumns.build(),
                 newRightColumns.entrySet().stream()
                         .collect(toImmutableMap(Map.Entry::getKey, entry -> entry.getValue().getColumnName())),
                 newLeftColumns.entrySet().stream()

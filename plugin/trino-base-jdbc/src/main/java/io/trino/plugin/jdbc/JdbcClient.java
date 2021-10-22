@@ -106,6 +106,7 @@ public interface JdbcClient
             PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> rightAssignments,
             Map<JdbcColumnHandle, String> leftAssignments,
             JoinStatistics statistics);

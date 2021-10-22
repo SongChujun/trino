@@ -108,6 +108,7 @@ public class QueryBuilder
             PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> leftAssignments,
             Map<JdbcColumnHandle, String> rightAssignments)
     {
@@ -116,17 +117,31 @@ public class QueryBuilder
         verify(!rightAssignments.isEmpty(), "rightAssignments is empty");
         // Joins wih no conditions are not pushed down, so it is a same assumption and simplifies the code here
         verify(!joinConditions.isEmpty(), "joinConditions is empty");
-
-        String query = format(
-                "SELECT %s, %s FROM (%s) l %s (%s) r ON %s",
-                formatAssignments("l", leftAssignments),
-                formatAssignments("r", rightAssignments),
-                leftSource.getQuery(),
-                formatJoinType(joinType),
-                rightSource.getQuery(),
-                joinConditions.stream()
-                        .map(this::formatCondition)
-                        .collect(joining(" AND ")));
+        String query;
+        if (!orderByColumns.isEmpty()) {
+            query = format(
+                    "SELECT %s, %s FROM (%s) l %s (%s) r ON %s order by %s",
+                    formatAssignments("l", leftAssignments),
+                    formatAssignments("r", rightAssignments),
+                    leftSource.getQuery(),
+                    formatJoinType(joinType),
+                    rightSource.getQuery(),
+                    joinConditions.stream()
+                            .map(this::formatCondition)
+                            .collect(joining(" AND ")), orderByColumns.stream().map(this::formatOrderBy).collect(joining(" , ")));
+        }
+        else {
+            query = format(
+                    "SELECT %s, %s FROM (%s) l %s (%s) r ON %s",
+                    formatAssignments("l", leftAssignments),
+                    formatAssignments("r", rightAssignments),
+                    leftSource.getQuery(),
+                    formatJoinType(joinType),
+                    rightSource.getQuery(),
+                    joinConditions.stream()
+                            .map(this::formatCondition)
+                            .collect(joining(" AND ")));
+        }
         List<QueryParameter> parameters = ImmutableList.<QueryParameter>builder()
                 .addAll(leftSource.getParameters())
                 .addAll(rightSource.getParameters())
@@ -166,6 +181,20 @@ public class QueryBuilder
                     (long) constLeftColumn.getValue(),
                     condition.getOperator().getValue(),
                     client.quoted(jdbcRightColumn.getColumnName()));
+        }
+        else {
+            verify(false);
+        }
+        return "";
+    }
+
+    private String formatOrderBy(ColumnHandle orderByColumn)
+    {
+        if (orderByColumn instanceof JdbcColumnHandle) {
+            JdbcColumnHandle jdbcorderByColumn = (JdbcColumnHandle) orderByColumn;
+            return format(
+                    "l.%s",
+                    client.quoted(jdbcorderByColumn.getColumnName()));
         }
         else {
             verify(false);

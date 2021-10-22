@@ -525,6 +525,7 @@ public class MySqlClient
             PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> rightAssignments,
             Map<JdbcColumnHandle, String> leftAssignments,
             JoinStatistics statistics)
@@ -533,7 +534,7 @@ public class MySqlClient
             // Not supported in MySQL
             return Optional.empty();
         }
-        return super.implementJoin(session, joinType, leftSource, rightSource, joinConditions, rightAssignments, leftAssignments, statistics);
+        return super.implementJoin(session, joinType, leftSource, rightSource, joinConditions, orderByColumns, rightAssignments, leftAssignments, statistics);
     }
 
     @Override

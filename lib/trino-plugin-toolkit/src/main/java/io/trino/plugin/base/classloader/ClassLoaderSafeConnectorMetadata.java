@@ -817,12 +817,13 @@ public class ClassLoaderSafeConnectorMetadata
             ConnectorTableHandle left,
             ConnectorTableHandle right,
             List<JoinCondition> joinConditions,
+            List<ColumnHandle> orderbyColumns,
             Map<String, ColumnHandle> leftAssignments,
             Map<String, ColumnHandle> rightAssignments,
             JoinStatistics statistics)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            return delegate.applyJoin(session, joinType, left, right, joinConditions, leftAssignments, rightAssignments, statistics);
+            return delegate.applyJoin(session, joinType, left, right, joinConditions, orderbyColumns, leftAssignments, rightAssignments, statistics);
         }
     }
 

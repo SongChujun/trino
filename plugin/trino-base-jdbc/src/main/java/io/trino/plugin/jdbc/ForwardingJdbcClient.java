@@ -168,11 +168,12 @@ public abstract class ForwardingJdbcClient
             PreparedQuery leftSource,
             PreparedQuery rightSource,
             List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> rightAssignments,
             Map<JdbcColumnHandle, String> leftAssignments,
             JoinStatistics statistics)
     {
-        return delegate().implementJoin(session, joinType, leftSource, rightSource, joinConditions, rightAssignments, leftAssignments, statistics);
+        return delegate().implementJoin(session, joinType, leftSource, rightSource, joinConditions, orderByColumns, rightAssignments, leftAssignments, statistics);
     }
 
     @Override

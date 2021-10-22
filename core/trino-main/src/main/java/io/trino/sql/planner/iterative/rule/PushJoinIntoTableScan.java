@@ -133,8 +133,8 @@ public class PushJoinIntoTableScan
         ComparisonExpression outerFilterPredicate = null;
         Symbol filterSymbol = null;
         LongLiteral delimiter = null;
+        List<ColumnHandle> leftPrimaryKeyColumnHandles = ImmutableList.of();
         List<Symbol> leftPrimaryKeySymbols = null;
-
         if (isHybridJoinEnabled(context.getSession())) {
             List<String> leftPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), left.getTable());
             if (!leftPrimaryKeyColumns.isEmpty()) {
@@ -168,7 +168,7 @@ public class PushJoinIntoTableScan
                     }
 
                     List<String> leftNotIncludedPrimaryKeyStrs = leftPrimaryKeyColumns.stream().filter(str -> !leftColumnHandles.containsKey(str)).collect(toImmutableList());
-                    List<ColumnHandle> leftPrimaryKeyColumnHandles;
+
                     if (!leftNotIncludedPrimaryKeyStrs.isEmpty()) {
                         TableSchema leftTableSchema = metadata.getTableSchema(context.getSession(), left.getTable());
                         TableHandle leftTableHandle = metadata.getTableHandle(context.getSession(), leftTableSchema.getQualifiedName()).get();
@@ -197,7 +197,8 @@ public class PushJoinIntoTableScan
                     else {
                         leftPrimaryKeyColumnHandles = leftColumnHandles.entrySet().stream().filter(cl -> leftPrimaryKeyColumns.contains(cl.getKey())).map(Map.Entry::getValue).collect(toImmutableList());
                     }
-                    leftPrimaryKeySymbols = left.getAssignments().entrySet().stream().filter(a -> leftPrimaryKeyColumnHandles.contains(a.getValue())).map(Map.Entry::getKey).collect(toImmutableList());
+                    List<ColumnHandle> finalLeftPrimaryKeyColumnHandles = leftPrimaryKeyColumnHandles;
+                    leftPrimaryKeySymbols = left.getAssignments().entrySet().stream().filter(a -> finalLeftPrimaryKeyColumnHandles.contains(a.getValue())).map(Map.Entry::getKey).collect(toImmutableList());
 
                     double hybridJoinPushdownRatio = 1 - getHybridJoinPushdownRatio(context.getSession());
                     List<Object> nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get());
@@ -274,6 +275,7 @@ public class PushJoinIntoTableScan
                 left.getTable(),
                 right.getTable(),
                 joinConditions,
+                leftPrimaryKeyColumnHandles,
                 // TODO we could pass only subset of assignments here, those which are needed to resolve filterSplitResult.getPushableConditions
                 leftAssignments,
                 rightAssignments,

@@ -1479,6 +1479,7 @@ public final class MetadataManager
             TableHandle left,
             TableHandle right,
             List<JoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
             Map<String, ColumnHandle> leftAssignments,
             Map<String, ColumnHandle> rightAssignments,
             JoinStatistics statistics)
@@ -1500,6 +1501,7 @@ public final class MetadataManager
                         left.getConnectorHandle(),
                         right.getConnectorHandle(),
                         joinConditions,
+                        orderByColumns,
                         leftAssignments,
                         rightAssignments,
                         statistics);
