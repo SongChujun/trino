@@ -51,6 +51,7 @@ public class OuterJoinResultProcessingOperator
     List<BlockTypeOperators.BlockPositionEqual> equalOperators;
     private Page currentPrimaryKeyPage;
     private int currentPrimaryKeyRow;
+    private int currentVal;
 
     public OuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -78,6 +79,7 @@ public class OuterJoinResultProcessingOperator
         this.duplicateDetectionTime = 0;
         this.equalOperators = equalOperators;
         this.currentPrimaryKeyPage = null;
+        this.currentVal = -1;
     }
 
     @Override
@@ -126,15 +128,15 @@ public class OuterJoinResultProcessingOperator
         int outputRetainedPositionsPtr = 0;
         for (int i = 0; i < page.getPositionCount(); i++) {
             boolean rightNull = page.getBlock(rightJoinChannels.get(0)).isNull(i);
-            if (!primaryKeyColumnsEqual(page, i)) {
+            if (rightNull) {
                 leftRetainedPositions[leftRetainedPositionsPtr] = i;
                 leftRetainedPositionsPtr += 1;
             }
-            if (rightNull) {
-//                leftRetainedPositions[leftRetainedPositionsPtr] = i;
-//                leftRetainedPositionsPtr += 1;
-            }
             else {
+                if (!primaryKeyColumnsEqual(page, i)) {
+                    leftRetainedPositions[leftRetainedPositionsPtr] = i;
+                    leftRetainedPositionsPtr += 1;
+                }
                 outputRetainedPositions[outputRetainedPositionsPtr] = i;
                 outputRetainedPositionsPtr += 1;
             }
