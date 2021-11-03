@@ -27,6 +27,7 @@ import io.trino.spi.session.PropertyMetadata;
 import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import io.trino.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
+import io.trino.sql.analyzer.FeaturesConfig.JoinType;
 
 import javax.inject.Inject;
 
@@ -50,6 +51,7 @@ import static java.lang.String.format;
 public final class SystemSessionProperties
 {
     public static final String OPTIMIZE_HASH_GENERATION = "optimize_hash_generation";
+    public static final String JOIN_TYPE = "join_type";
     public static final String JOIN_DISTRIBUTION_TYPE = "join_distribution_type";
     public static final String JOIN_MAX_BROADCAST_TABLE_SIZE = "join_max_broadcast_table_size";
     public static final String DISTRIBUTED_INDEX_JOIN = "distributed_index_join";
@@ -176,6 +178,12 @@ public final class SystemSessionProperties
                         "Join distribution type",
                         JoinDistributionType.class,
                         featuresConfig.getJoinDistributionType(),
+                        false),
+                enumProperty(
+                        JOIN_TYPE,
+                        "Join type",
+                        JoinType.class,
+                        featuresConfig.getJoinType(),
                         false),
                 dataSizeProperty(
                         JOIN_MAX_BROADCAST_TABLE_SIZE,
@@ -680,6 +688,11 @@ public final class SystemSessionProperties
     public static JoinDistributionType getJoinDistributionType(Session session)
     {
         return session.getSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.class);
+    }
+
+    public static JoinType getJoinType(Session session)
+    {
+        return session.getSystemProperty(JOIN_TYPE, JoinType.class);
     }
 
     public static DataSize getJoinMaxBroadcastTableSize(Session session)

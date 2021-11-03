@@ -418,7 +418,7 @@ public class PagesIndex
         return pagesHashStrategy.positionNotDistinctFromRow(pageIndex, pagePosition, rightPosition, rightPage);
     }
 
-    private PagesIndexOrdering createPagesIndexComparator(List<Integer> sortChannels, List<SortOrder> sortOrders)
+    public PagesIndexOrdering createPagesIndexComparator(List<Integer> sortChannels, List<SortOrder> sortOrders)
     {
         List<Type> sortTypes = sortChannels.stream()
                 .map(types::get)

@@ -123,7 +123,10 @@ import io.trino.operator.join.LookupSourceFactory;
 import io.trino.operator.join.NestedLoopJoinBridge;
 import io.trino.operator.join.NestedLoopJoinPagesSupplier;
 import io.trino.operator.join.OuterJoinResultProcessingOperator;
+import io.trino.operator.join.PagesMergeOperator;
 import io.trino.operator.join.PartitionedLookupSourceFactory;
+import io.trino.operator.join.SortMergeJoinBridge;
+import io.trino.operator.join.SortOperator;
 import io.trino.operator.project.CursorProcessor;
 import io.trino.operator.project.PageProcessor;
 import io.trino.operator.project.PageProjection;
@@ -161,6 +164,7 @@ import io.trino.split.MappedRecordSet;
 import io.trino.split.PageSinkManager;
 import io.trino.split.PageSourceProvider;
 import io.trino.sql.DynamicFilters;
+import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.gen.ExpressionCompiler;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.gen.JoinFilterFunctionCompiler;
@@ -268,6 +272,7 @@ import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
 import static io.trino.SystemSessionProperties.getAggregationOperatorUnspillMemoryLimit;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageRowCount;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageSize;
+import static io.trino.SystemSessionProperties.getJoinType;
 import static io.trino.SystemSessionProperties.getTaskConcurrency;
 import static io.trino.SystemSessionProperties.getTaskWriterCount;
 import static io.trino.SystemSessionProperties.isEnableLargeDynamicFilters;
@@ -295,6 +300,7 @@ import static io.trino.operator.unnest.UnnestOperator.UnnestOperatorFactory;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.CLASSIFIER;
 import static io.trino.operator.window.pattern.PhysicalValuePointer.MATCH_NUMBER;
 import static io.trino.spi.StandardErrorCode.COMPILER_ERROR;
+import static io.trino.spi.connector.SortOrder.ASC_NULLS_LAST;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.TypeUtils.readNativeValue;
 import static io.trino.spi.type.TypeUtils.writeNativeValue;
@@ -2333,7 +2339,15 @@ public class LocalExecutionPlanner
                 case LEFT:
                 case RIGHT:
                 case FULL:
-                    return createLookupJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+                    if (getJoinType(session) == FeaturesConfig.JoinType.HASH) {
+                        return createLookupJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+                    }
+                    else if (getJoinType(session) == FeaturesConfig.JoinType.SORT_MERGE) {
+                        return createSortMergeJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+                    }
+                    else {
+                        throw new UnsupportedOperationException("Unsupported join type");
+                    }
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
@@ -2758,6 +2772,86 @@ public class LocalExecutionPlanner
 
                 return new PhysicalOperation(operator, outputMappings.build(), context, probeSource);
             }
+        }
+
+        private PhysicalOperation createSortMergeJoin(
+                JoinNode node,
+                PlanNode leftNode,
+                List<Symbol> leftSymbols,
+                Optional<Symbol> leftHashSymbol,
+                PlanNode rightNode,
+                List<Symbol> rightSymbols,
+                Optional<Symbol> rightHashSymbol,
+                Set<DynamicFilterId> localDynamicFilters,
+                LocalExecutionPlanContext context)
+        {
+            context.setDriverInstanceCount(getTaskConcurrency(session));
+            LocalExecutionPlanContext leftContext = context.createSubContext();
+            LocalExecutionPlanContext rightContext = context.createSubContext();
+            PhysicalOperation leftSource = leftNode.accept(this, leftContext);
+
+            PhysicalOperation rightSource = rightNode.accept(this, rightContext);
+
+            List<Type> leftTypes = leftSource.getTypes();
+            List<Type> rightTypes = leftSource.getTypes();
+
+            List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), leftSource.getLayout()));
+            List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), rightSource.getLayout()));
+            OptionalInt leftHashChannel = leftHashSymbol.map(channelGetter(leftSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
+
+            OptionalInt rightHashChannel = rightHashSymbol.map(channelGetter(rightSource))
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
+            List<Integer> leftChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, leftSource.getLayout()));
+            List<Integer> rightChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, rightSource.getLayout()));
+
+            boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
+                    node.getCriteria().stream()
+                            .map(JoinNode.EquiJoinClause::getRight)
+                            .collect(toImmutableSet())
+                            .containsAll(node.getRightOutputSymbols());
+            int expectedPositions = 10_000;
+
+            boolean eagerCompact = false; //hacky;
+
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions);
+
+            ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
+
+            for (int i = 0; i < leftChannels.size(); i++) {
+                sortOrder.add(ASC_NULLS_LAST);
+            }
+
+            OperatorFactory leftSortOperator = new SortOperator.SortOperatorFactory(leftContext.getNextOperatorId(), node.getId(), leftTypes,
+                     leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT);
+
+            OperatorFactory rightSortOperator = new SortOperator.SortOperatorFactory(rightContext.getNextOperatorId(), node.getId(), rightTypes,
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT);
+
+            OperatorFactory mergeOperator = new PagesMergeOperator.PagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
+                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftHashChannel, rightHashChannel, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge);
+
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+            context.addDriverFactory(
+                    leftContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(leftSortOperator, outputMappings.build(), leftContext,
+                            leftSource),
+                    leftContext.getDriverInstanceCount());
+
+            context.addDriverFactory(
+                    rightContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightSortOperator, outputMappings.build(), rightContext,
+                            rightSource),
+                    rightContext.getDriverInstanceCount());
+
+            return new PhysicalOperation(mergeOperator, outputMappings.build(), context, UNGROUPED_EXECUTION);
         }
 
         private PhysicalOperation createAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)

@@ -71,6 +71,7 @@ public class FeaturesConfig
     private boolean distributedIndexJoinsEnabled;
     private DataSize joinMaxBroadcastTableSize = DataSize.of(100, MEGABYTE);
     private JoinDistributionType joinDistributionType = JoinDistributionType.AUTOMATIC;
+    private JoinType joinType = JoinType.SORT_MERGE;
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
     private boolean dynamicScheduleForGroupedExecution;
@@ -165,6 +166,12 @@ public class FeaturesConfig
         }
     }
 
+    public enum JoinType
+    {
+        HASH,
+        SORT_MERGE,
+    }
+
     public enum DataIntegrityVerification
     {
         NONE,
@@ -251,10 +258,22 @@ public class FeaturesConfig
         return joinDistributionType;
     }
 
+    public JoinType getJoinType()
+    {
+        return joinType;
+    }
+
     @Config("join-distribution-type")
     public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
     {
         this.joinDistributionType = requireNonNull(joinDistributionType, "joinDistributionType is null");
+        return this;
+    }
+
+    @Config("join-type")
+    public FeaturesConfig setJoinType(JoinType joinType)
+    {
+        this.joinType = requireNonNull(joinType, "joinType is null");
         return this;
     }
 
