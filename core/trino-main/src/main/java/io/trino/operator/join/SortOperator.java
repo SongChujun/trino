@@ -239,6 +239,7 @@ public class SortOperator
             if (sortFinishedCnt.incrementAndGet() == 2) {
                 sortFinishedFuture.set(true);
             }
+            state = State.FINISHED;
         }
     }
 
@@ -263,7 +264,7 @@ public class SortOperator
 
         // TODO: remove when retained memory accounting for pages does not
         // count shared data structures multiple times
-        page.compact();
+//        page.compact();
         pageIndex.addPage(page);
         updateMemoryUsage();
     }
@@ -367,8 +368,7 @@ public class SortOperator
     @Override
     public void close()
     {
-        pageIndex.clear();
-        sortedPages = null;
+//        pageIndex.clear();
         spiller.ifPresent(Spiller::close);
     }
 }

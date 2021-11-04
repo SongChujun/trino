@@ -2793,7 +2793,7 @@ public class LocalExecutionPlanner
             PhysicalOperation rightSource = rightNode.accept(this, rightContext);
 
             List<Type> leftTypes = leftSource.getTypes();
-            List<Type> rightTypes = leftSource.getTypes();
+            List<Type> rightTypes = rightSource.getTypes();
 
             List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), leftSource.getLayout()));
             List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), rightSource.getLayout()));

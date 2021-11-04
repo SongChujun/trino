@@ -19,6 +19,7 @@ import io.trino.spi.Page;
 import io.trino.spi.PageBuilder;
 import io.trino.spi.block.Block;
 import io.trino.spi.type.Type;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.util.List;
 
@@ -52,14 +53,22 @@ public class SortMergePageBuilder
         return pageBuilder.isFull();
     }
 
+    public boolean isEmpty()
+    {
+        return pageBuilder.isEmpty();
+    }
+
     public void appendRow(int leftPos, int rightPos, int outputChannelOffset)
     {
-        int leftPageIndex = decodeSliceIndex(leftPos);
-        int leftPagePosition = decodePosition(leftPos);
-        int rightPageIndex = decodeSliceIndex(rightPos);
-        int rightPagePosition = decodePosition(rightPos);
+        LongArrayList leftAddresses = leftPagesIndex.getValueAddresses();
+        LongArrayList rightAddresses = rightPagesIndex.getValueAddresses();
+        int leftPageIndex = decodeSliceIndex(leftAddresses.getLong(leftPos));
+        int leftPagePosition = decodePosition(leftAddresses.getLong(leftPos));
+        int rightPageIndex = decodeSliceIndex(rightAddresses.getLong(rightPos));
+        int rightPagePosition = decodePosition(rightAddresses.getLong(rightPos));
 
         int i = 0;
+        pageBuilder.declarePosition();
         for (int leftOutputIndex : leftOutputChannels) {
             Type type = leftOutputTypes.get(i++);
             Block block = leftPagesIndex.getChannel(leftOutputIndex).get(leftPageIndex);

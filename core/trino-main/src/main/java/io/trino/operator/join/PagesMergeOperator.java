@@ -28,6 +28,7 @@ import io.trino.spi.connector.SortOrder;
 import io.trino.spi.type.Type;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.type.BlockTypeOperators;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.util.List;
 import java.util.OptionalInt;
@@ -37,7 +38,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.operator.SyntheticAddress.decodePosition;
 import static io.trino.operator.SyntheticAddress.decodeSliceIndex;
 import static io.trino.spi.connector.SortOrder.ASC_NULLS_LAST;
-import static io.trino.spi.type.BigintType.BIGINT;
 import static java.util.Objects.requireNonNull;
 
 public class PagesMergeOperator
@@ -103,10 +103,10 @@ public class PagesMergeOperator
             PagesIndex leftPagesIndex = pagesIndexPair.get(0);
             PagesIndex rightPagesIndex = pagesIndexPair.get(1);
             PagesIndexComparator leftPagesIndexComparator = leftPagesIndex.createPagesIndexComparator(leftMergeChannels, sortOrder.build()).getComparator();
-            PagesIndexComparator rightPagesIndexComparator = leftPagesIndex.createPagesIndexComparator(rightMergeChannels, sortOrder.build()).getComparator();
+            PagesIndexComparator rightPagesIndexComparator = rightPagesIndex.createPagesIndexComparator(rightMergeChannels, sortOrder.build()).getComparator();
 
             List<Type> leftOutputTypes = leftOutputChannels.stream().map(leftTypes::get).collect(toImmutableList());
-            List<Type> rightOutputTypes = leftOutputChannels.stream().map(rightTypes::get).collect(toImmutableList());
+            List<Type> rightOutputTypes = rightOutputChannels.stream().map(rightTypes::get).collect(toImmutableList());
 
             SortMergePageBuilder pageBuilder = new SortMergePageBuilder(leftPagesIndex, rightPagesIndex, leftOutputTypes, rightOutputTypes, leftOutputChannels, rightOutputChannels);
             return new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftPagesIndex, rightPagesIndex,
@@ -142,7 +142,10 @@ public class PagesMergeOperator
     private int rightPos;
     private int previousLeftPos;
     private int previousRightPos;
+    private int middleRightPos;
     private final SortMergePageBuilder pageBuilder;
+    private boolean finished;
+    private long cnt;
 
     public PagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
@@ -173,6 +176,8 @@ public class PagesMergeOperator
         this.previousRightPos = 0;
         this.leftPos = 0;
         this.rightPos = 0;
+        this.cnt = 0;
+        this.finished = false;
     }
 
     @Override
@@ -189,7 +194,7 @@ public class PagesMergeOperator
     @Override
     public boolean isFinished()
     {
-        return (leftPos >= leftSortedPagesIndex.getPositionCount()) || (rightPos >= rightSortedPagesIndex.getPositionCount());
+        return sortFinishedFuture.isDone() && finished;
     }
 
     @Override
@@ -201,7 +206,7 @@ public class PagesMergeOperator
     @Override
     public boolean needsInput()
     {
-        return sortFinishedFuture.isDone();
+        return false;
     }
 
     @Override
@@ -213,21 +218,23 @@ public class PagesMergeOperator
     @Override
     public Page getOutput()
     {
-        // build the remaining page
+        // build the remaining pages
         for (int i = previousLeftPos; i < leftPos; i++) {
-            for (int j = previousRightPos; j < rightPos; j++) {
+            for (int j = (i == previousLeftPos) ? middleRightPos : previousRightPos; j < rightPos; j++) {
                 if (!pageBuilder.isFull()) {
                     pageBuilder.appendRow(i, j, 0);
                 }
                 else {
                     previousLeftPos = i;
-                    previousRightPos = j;
+                    middleRightPos = j;
                     Page res = pageBuilder.buildPage();
+                    this.cnt += res.getPositionCount();
                     pageBuilder.reset();
                     return res;
                 }
             }
         }
+
         // calculate left and right range for equal positions
         while (true) {
             while ((leftPos < leftSortedPagesIndex.getPositionCount()) && (rightPos < rightSortedPagesIndex.getPositionCount())) {
@@ -243,6 +250,13 @@ public class PagesMergeOperator
                 }
             }
             if ((leftPos >= leftSortedPagesIndex.getPositionCount()) || (rightPos >= rightSortedPagesIndex.getPositionCount())) {
+                this.finished = true;
+                if (!pageBuilder.isEmpty()) {
+                    Page res = pageBuilder.buildPage();
+                    this.cnt += res.getPositionCount();
+                    pageBuilder.reset();
+                    return res;
+                }
                 return null;
             }
             if (compareJoinPosition() != 0) {
@@ -263,8 +277,9 @@ public class PagesMergeOperator
                     }
                     else {
                         previousLeftPos = i;
-                        previousRightPos = j;
+                        middleRightPos = j;
                         Page res = pageBuilder.buildPage();
+                        this.cnt += res.getPositionCount();
                         pageBuilder.reset();
                         return res;
                     }
@@ -285,16 +300,16 @@ public class PagesMergeOperator
 
     private long compareJoinPosition()
     {
-        int leftPageIndex = decodeSliceIndex(leftPos);
-        int leftPagePosition = decodePosition(leftPos);
-        int rightPageIndex = decodeSliceIndex(rightPos);
-        int rightPagePosition = decodePosition(rightPos);
+        LongArrayList leftAddresses = leftSortedPagesIndex.getValueAddresses();
+        LongArrayList rightAddresses = rightSortedPagesIndex.getValueAddresses();
 
-        if (leftHashChannel.isPresent() && rightHashChannel.isPresent()) {
-            if (BIGINT.getLong(leftSortedPagesIndex.getChannel(leftHashChannel.getAsInt()).get(leftPageIndex), leftPagePosition) != (BIGINT.getLong(rightSortedPagesIndex.getChannel(rightHashChannel.getAsInt()).get(rightPageIndex), rightPagePosition))) {
-                return 0;
-            }
-        }
+        long leftPageAddress = leftAddresses.getLong(leftPos);
+        long rightPageAddress = rightAddresses.getLong(rightPos);
+        int leftPageIndex = decodeSliceIndex(leftPageAddress);
+        int leftPagePosition = decodePosition(leftPageAddress);
+        int rightPageIndex = decodeSliceIndex(rightPageAddress);
+        int rightPagePosition = decodePosition(rightPageAddress);
+
         for (int i = 0; i < leftMergeChannels.size(); i++) {
             BlockTypeOperators.BlockPositionComparison comparisonOperator = joinEqualOperators.get(i);
             Block leftBlock = leftSortedPagesIndex.getChannel(leftMergeChannels.get(i)).get(leftPageIndex);
