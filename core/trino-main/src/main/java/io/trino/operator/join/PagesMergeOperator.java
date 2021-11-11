@@ -31,7 +31,6 @@ import io.trino.type.BlockTypeOperators;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.util.List;
-import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -52,8 +51,6 @@ public class PagesMergeOperator
         private final List<Type> rightTypes;
         private final List<Integer> leftMergeChannels;
         private final List<Integer> rightMergeChannels;
-        private final OptionalInt leftHashChannel;
-        private final OptionalInt rightHashChannel;
         private final List<Integer> leftOutputChannels;
         private final List<Integer> rightOutputChannels;
         List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators;
@@ -69,8 +66,6 @@ public class PagesMergeOperator
                 List<Integer> rightMergeChannels,
                 List<Integer> leftOutputChannels,
                 List<Integer> rightOutputChannels,
-                OptionalInt leftHashChannel,
-                OptionalInt rightHashChannel,
                 List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators,
                 SortMergeJoinBridge bridge)
         {
@@ -83,8 +78,6 @@ public class PagesMergeOperator
             this.leftOutputChannels = requireNonNull(leftOutputChannels);
             this.rightOutputChannels = requireNonNull(rightOutputChannels);
             this.joinEqualOperators = requireNonNull(joinEqualOperators);
-            this.leftHashChannel = requireNonNull(leftHashChannel);
-            this.rightHashChannel = requireNonNull(rightHashChannel);
             this.bridge = requireNonNull(bridge);
         }
 
@@ -110,7 +103,7 @@ public class PagesMergeOperator
 
             SortMergePageBuilder pageBuilder = new SortMergePageBuilder(leftPagesIndex, rightPagesIndex, leftOutputTypes, rightOutputTypes, leftOutputChannels, rightOutputChannels);
             return new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftPagesIndex, rightPagesIndex,
-                    leftPagesIndexComparator, rightPagesIndexComparator, leftHashChannel, rightHashChannel, bridge.getNextFinishedFuture(), joinEqualOperators,
+                    leftPagesIndexComparator, rightPagesIndexComparator, bridge.getNextFinishedFuture(), joinEqualOperators,
                     pageBuilder);
         }
 
@@ -135,8 +128,6 @@ public class PagesMergeOperator
     private final List<Integer> rightMergeChannels;
     private final PagesIndexComparator leftPagesIndexComparator;
     private final PagesIndexComparator rightPagesIndexComparator;
-    private final OptionalInt leftHashChannel;
-    private final OptionalInt rightHashChannel;
     private final List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators;
     private int leftPos;
     private int rightPos;
@@ -154,8 +145,6 @@ public class PagesMergeOperator
             PagesIndex rightSortedPagesIndex,
             PagesIndexComparator leftPagesIndexComparator,
             PagesIndexComparator rightPagesIndexComparator,
-            OptionalInt leftHashChannel,
-            OptionalInt rightHashChannel,
             SettableFuture<Boolean> sortFinishedFuture,
             List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators,
             SortMergePageBuilder pageBuilder)
@@ -170,8 +159,6 @@ public class PagesMergeOperator
         this.sortFinishedFuture = requireNonNull(sortFinishedFuture);
         this.joinEqualOperators = requireNonNull(joinEqualOperators);
         this.pageBuilder = requireNonNull(pageBuilder);
-        this.leftHashChannel = requireNonNull(leftHashChannel);
-        this.rightHashChannel = requireNonNull(rightHashChannel);
         this.previousLeftPos = 0;
         this.previousRightPos = 0;
         this.leftPos = 0;

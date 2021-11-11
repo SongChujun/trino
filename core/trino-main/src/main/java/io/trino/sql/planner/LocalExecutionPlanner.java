@@ -111,9 +111,11 @@ import io.trino.operator.index.IndexJoinLookupStats;
 import io.trino.operator.index.IndexLookupSourceFactory;
 import io.trino.operator.index.IndexSourceOperator;
 import io.trino.operator.join.AdaptiveJoinBridge;
+import io.trino.operator.join.AdaptivePagesMergeOperator;
 import io.trino.operator.join.HashBuildAndProbeOperator;
 import io.trino.operator.join.HashBuilderOperator.HashBuilderOperatorFactory;
 import io.trino.operator.join.HashJoinOperator;
+import io.trino.operator.join.HashOuterJoinResultProcessingOperator;
 import io.trino.operator.join.JoinBridgeManager;
 import io.trino.operator.join.JoinOperatorFactory;
 import io.trino.operator.join.JoinOperatorFactory.OuterOperatorFactoryResult;
@@ -122,10 +124,10 @@ import io.trino.operator.join.LookupOuterOperator.LookupOuterOperatorFactory;
 import io.trino.operator.join.LookupSourceFactory;
 import io.trino.operator.join.NestedLoopJoinBridge;
 import io.trino.operator.join.NestedLoopJoinPagesSupplier;
-import io.trino.operator.join.OuterJoinResultProcessingOperator;
 import io.trino.operator.join.PagesMergeOperator;
 import io.trino.operator.join.PartitionedLookupSourceFactory;
 import io.trino.operator.join.SortMergeJoinBridge;
+import io.trino.operator.join.SortMergeOuterJoinResultProcessingOperator;
 import io.trino.operator.join.SortOperator;
 import io.trino.operator.project.CursorProcessor;
 import io.trino.operator.project.PageProcessor;
@@ -2367,7 +2369,12 @@ public class LocalExecutionPlanner
 
             switch (node.getType()) {
                 case INNER:
-                    return createAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    if (getJoinType(session) == FeaturesConfig.JoinType.HASH) {
+                        return createHashAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    }
+                    else if (getJoinType(session) == FeaturesConfig.JoinType.SORT_MERGE) {
+                        return createSortMergeAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    }
                 case LEFT:
                 case RIGHT:
                 case FULL:
@@ -2797,11 +2804,6 @@ public class LocalExecutionPlanner
 
             List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), leftSource.getLayout()));
             List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), rightSource.getLayout()));
-            OptionalInt leftHashChannel = leftHashSymbol.map(channelGetter(leftSource))
-                    .map(OptionalInt::of).orElse(OptionalInt.empty());
-
-            OptionalInt rightHashChannel = rightHashSymbol.map(channelGetter(rightSource))
-                    .map(OptionalInt::of).orElse(OptionalInt.empty());
             List<Integer> leftChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, leftSource.getLayout()));
             List<Integer> rightChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, rightSource.getLayout()));
 
@@ -2829,7 +2831,7 @@ public class LocalExecutionPlanner
                     rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT);
 
             OperatorFactory mergeOperator = new PagesMergeOperator.PagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
-                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftHashChannel, rightHashChannel, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge);
+                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge);
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();
@@ -2854,7 +2856,97 @@ public class LocalExecutionPlanner
             return new PhysicalOperation(mergeOperator, outputMappings.build(), context, UNGROUPED_EXECUTION);
         }
 
-        private PhysicalOperation createAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)
+        private PhysicalOperation createSortMergeAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)
+        {
+            context.setDriverInstanceCount(getTaskConcurrency(session));
+
+            PlanNode rightNode = node.getBuild();
+            LocalExecutionPlanContext rightContext = context.createSubContext();
+            PhysicalOperation rightSource = rightNode.accept(this, rightContext);
+
+            PlanNode outerNode = node.getOuter();
+            LocalExecutionPlanContext outerContext = context.createSubContext();
+            PhysicalOperation outerSource = outerNode.accept(this, outerContext);
+
+            List<Type> rightTypes = rightSource.getTypes();
+            List<Type> outerTypes = outerSource.getTypes();
+            List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getBuildOutputSymbols(), rightSource.getLayout()));
+            List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getProbeOutputSymbols(), outerSource.getLayout()));
+
+            leftOutputChannels = leftOutputChannels.stream().map(i -> i >= node.getOuterLeftSymbols().size() ? i - node.getOuterRightSymbols().size() : i).collect(toImmutableList());
+
+            List<Integer> outerLeftChannels = new ArrayList<>(getChannelsForSymbols(node.getOuterLeftSymbols(), outerSource.getLayout()));
+
+            OptionalInt leftHashChannel = node.getOuterHashSymbol().map(channelGetter(outerSource)).map(i -> i - node.getOuterRightSymbols().size())
+                    .map(OptionalInt::of).orElse(OptionalInt.empty());
+
+            if (leftHashChannel.isPresent()) {
+                outerLeftChannels.add(leftHashChannel.getAsInt());
+            }
+
+            List<Type> leftTypes = outerLeftChannels.stream().map(outerSource.getTypes()::get).collect(toImmutableList());
+
+            List<Integer> rightJoinChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, rightSource.getLayout()));
+            List<Integer> leftJoinChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout()));
+
+            boolean outputSingleMatch = node.isMaySkipOutputDuplicates() &&
+                    node.getCriteria().stream()
+                            .map(JoinNode.EquiJoinClause::getRight)
+                            .collect(toImmutableSet())
+                            .containsAll(node.getBuildOutputSymbols());
+
+            boolean eagerCompact = false; //hacky;
+            int partitionCount = getTaskConcurrency(session);
+
+            int expectedPositions = 10_000;
+
+            SortMergeJoinBridge joinBridge = new SortMergeJoinBridge(partitionCount, leftTypes, rightTypes, pagesIndexFactory, expectedPositions);
+
+            ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
+
+            for (int i = 0; i < leftJoinChannels.size(); i++) {
+                sortOrder.add(ASC_NULLS_LAST);
+            }
+
+            OperatorFactory rightSortOperator = new SortOperator.SortOperatorFactory(
+                    rightContext.getNextOperatorId(), node.getId(), rightTypes, rightJoinChannels, sortOrder.build(), false, Optional.empty(), orderingCompiler, joinBridge, SortOperator.SortOperatorFactory.Placement.RIGHT);
+
+            OperatorFactory outerTableOperator = new SortMergeOuterJoinResultProcessingOperator.SortMergeOuterJoinResultProcessingOperatorFactory(
+                    outerContext.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
+                    ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
+                    ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size(), getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout()).stream()
+                    .map(outerSource.getTypes()::get)
+                    .map(blockTypeOperators::getEqualOperator)
+                    .collect(toImmutableList()), leftJoinChannels, sortOrder.build());
+
+            OperatorFactory mergeOperator = new AdaptivePagesMergeOperator.AdaptivePagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
+                    leftJoinChannels, rightJoinChannels, leftOutputChannels, rightOutputChannels, leftJoinChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), joinBridge);
+
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+
+            context.addDriverFactory(
+                    outerContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(outerTableOperator, outputMappings.build(), outerContext,
+                            outerSource),
+                    outerContext.getDriverInstanceCount());
+
+            context.addDriverFactory(
+                    rightContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightSortOperator, outputMappings.build(), rightContext,
+                            rightSource),
+                    rightContext.getDriverInstanceCount());
+
+            return new PhysicalOperation(mergeOperator, outputMappings.build(), context, UNGROUPED_EXECUTION);
+        }
+
+        private PhysicalOperation createHashAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, LocalExecutionPlanContext context)
         {
             context.setDriverInstanceCount(getTaskConcurrency(session));
 
@@ -2898,7 +2990,7 @@ public class LocalExecutionPlanner
             OperatorFactory buildSideTableOperator = new HashBuildAndProbeOperator.HashBuildAndProbeOperatorFactory(
                     buildContext.getNextOperatorId(), node.getId(), buildPartitionFunction, joinBridge);
 
-            OperatorFactory outerTableOperator = new OuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
+            OperatorFactory outerTableOperator = new HashOuterJoinResultProcessingOperator.OuterJoinResultProcessingOperatorFactory(
                     context.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
                     ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, outerSource.getLayout())), ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, outerSource.getLayout())),
                     ImmutableList.copyOf(getChannelsForSymbols(node.getOutputSymbols(), outerSource.getLayout())), node.getOuterLeftSymbols().size(), getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout()).stream()

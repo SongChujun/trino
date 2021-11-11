@@ -13,47 +13,48 @@
  */
 package io.trino.operator.join;
 
-import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.SettableFuture;
 import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
+import io.trino.operator.PagesIndex;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
+import io.trino.spi.connector.SortOrder;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.type.BlockTypeOperators;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.Stack;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-public class OuterJoinResultProcessingOperator
+public class SortMergeOuterJoinResultProcessingOperator
         implements Operator
 {
     private final OperatorContext operatorContext;
     private final boolean isInnerJoin;
-    private final Stack<Page> outputPageBuffer;
     private final List<Integer> leftPrimaryKeyChannels;
-    private final List<Integer> leftJoinChannels;
     private final List<Integer> rightJoinChannels;
     private final List<Integer> outputChannels;
     private final Integer leftColumnsSize;
-    private final ListenableFuture<Boolean> hashBuildFinishedFuture;
-    private final HashBuildAndProbeTable hashTable;
-    private boolean isFinished;
-    private Set<String> duplicateSet;
-    private long allExtractTime;
-    private long duplicateDetectionTime;
-    List<BlockTypeOperators.BlockPositionEqual> equalOperators;
     private Page currentPrimaryKeyPage;
     private int currentPrimaryKeyRow;
-    private int currentVal;
+    List<BlockTypeOperators.BlockPositionEqual> equalOperators;
+    List<Page> leftJoinResult;
+    List<Integer> sortChannels;
+    List<SortOrder> sortOrder;
+    PagesIndex pagesIndex;
+    AtomicInteger sortFinishedCnt;
+    SettableFuture<Boolean> sortFinishedFuture;
+    boolean pkAndJoinColumnsEqual;
+    private boolean isFinished;
 
-    public OuterJoinResultProcessingOperator(
+    public SortMergeOuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
             boolean isInnerJoin,
             List<Integer> leftPrimaryKeyChannels,
@@ -61,25 +62,29 @@ public class OuterJoinResultProcessingOperator
             List<Integer> rightJoinChannels,
             List<Integer> outputChannels,
             Integer leftColumnsSize,
-            HashBuildAndProbeTable table,
-            List<BlockTypeOperators.BlockPositionEqual> equalOperators)
+            List<BlockTypeOperators.BlockPositionEqual> equalOperators,
+            List<Page> leftJoinResult,
+            List<Integer> sortChannels,
+            List<SortOrder> sortOrder,
+            PagesIndex pagesIndex,
+            AtomicInteger sortFinishedCnt,
+            SettableFuture<Boolean> sortFinishedFuture)
     {
         this.operatorContext = operatorContext;
         this.isInnerJoin = isInnerJoin;
-        this.hashTable = requireNonNull(table);
         this.leftPrimaryKeyChannels = requireNonNull(leftPrimaryKeyChannels);
-        this.leftJoinChannels = requireNonNull(leftJoinChannels);
         this.rightJoinChannels = requireNonNull(rightJoinChannels);
         this.outputChannels = requireNonNull(outputChannels);
         this.leftColumnsSize = requireNonNull(leftColumnsSize);
-        this.outputPageBuffer = new Stack<>();
-        this.hashBuildFinishedFuture = table.getBuildFinishedFuture();
-        this.duplicateSet = new HashSet<>(150000);
-        this.allExtractTime = 0;
-        this.duplicateDetectionTime = 0;
         this.equalOperators = equalOperators;
+        this.leftJoinResult = leftJoinResult;
+        this.sortChannels = sortChannels;
+        this.sortOrder = sortOrder;
+        this.pagesIndex = pagesIndex;
+        this.sortFinishedCnt = sortFinishedCnt;
+        this.sortFinishedFuture = sortFinishedFuture;
         this.currentPrimaryKeyPage = null;
-        this.currentVal = -1;
+        this.pkAndJoinColumnsEqual = leftPrimaryKeyChannels.stream().sorted().collect(Collectors.toList()).equals(leftJoinChannels.stream().sorted().collect(Collectors.toList()));
     }
 
     @Override
@@ -89,33 +94,17 @@ public class OuterJoinResultProcessingOperator
     }
 
     @Override
-    public ListenableFuture<?> isBlocked()
-    {
-        return hashBuildFinishedFuture;
-    }
-
-    @Override
     public boolean needsInput()
     {
-        return hashBuildFinishedFuture.isDone();
+        return true;
     }
 
     @Override
     public void addInput(Page page)
     {
-        long processStartTime = System.currentTimeMillis();
         Page[] extractedPages = extractPages(page, isInnerJoin);
-        duplicateDetectionTime += System.currentTimeMillis() - processStartTime;
-//        this.outputEntryCnt +=extractedPages[1].getPositionCount();
-        List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
-        allExtractTime += System.currentTimeMillis() - processStartTime;
-        if (joinResult != null) {
-//            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
-            outputPageBuffer.addAll(joinResult);
-//            joinResult.forEach(outputPageBuffer::add);
-//            outputPageBuffer.add(joinResult);
-        }
-        outputPageBuffer.add(extractedPages[1]);
+        pagesIndex.addPage(extractedPages[0]);
+        leftJoinResult.add(extractedPages[1]);
     }
 
     //specification: left: probeSide, right: outerSide
@@ -180,32 +169,33 @@ public class OuterJoinResultProcessingOperator
     @Override
     public Page getOutput()
     {
-        if (outputPageBuffer.isEmpty()) {
-            return null;
-        }
-        else {
-            return outputPageBuffer.pop();
-        }
+        throw new UnsupportedOperationException("Should not get output from SortOperator");
     }
 
     @Override
     public boolean isFinished()
     {
-        return isFinished && outputPageBuffer.isEmpty();
+        return isFinished;
     }
 
     @Override
     public void finish()
     {
+        if (!pkAndJoinColumnsEqual) {
+            pagesIndex.sort(sortChannels, sortOrder);
+        }
+        if (sortFinishedCnt.incrementAndGet() == 2) {
+            sortFinishedFuture.set(true);
+        }
         isFinished = true;
     }
 
-    public static class OuterJoinResultProcessingOperatorFactory
+    public static class SortMergeOuterJoinResultProcessingOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final AdaptiveJoinBridge joinBridge;
+        private final SortMergeJoinBridge joinBridge;
         private final boolean isInnerJoin;
         private final List<Integer> leftPrimaryKeyChannels;
         private final List<Integer> leftJoinChannels;
@@ -213,19 +203,23 @@ public class OuterJoinResultProcessingOperator
         private final List<Integer> outputChannels;
         private final Integer leftColumnsSize;
         private final List<BlockTypeOperators.BlockPositionEqual> equalOperators;
+        private final List<Integer> sortChannels;
+        private final List<SortOrder> sortOrder;
         private boolean closed;
 
-        public OuterJoinResultProcessingOperatorFactory(
+        public SortMergeOuterJoinResultProcessingOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                AdaptiveJoinBridge joinBridge,
+                SortMergeJoinBridge joinBridge,
                 boolean isInnerJoin,
                 List<Integer> leftPrimaryKeyChannels,
                 List<Integer> leftJoinChannels,
                 List<Integer> rightJoinChannels,
                 List<Integer> outputChannels,
                 Integer leftColumnsSize,
-                List<BlockTypeOperators.BlockPositionEqual> equalOperators)
+                List<BlockTypeOperators.BlockPositionEqual> equalOperators,
+                List<Integer> sortChannels,
+                List<SortOrder> sortOrder)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -237,16 +231,19 @@ public class OuterJoinResultProcessingOperator
             this.outputChannels = requireNonNull(outputChannels);
             this.leftColumnsSize = requireNonNull(leftColumnsSize);
             this.equalOperators = requireNonNull(equalOperators);
+            this.sortChannels = ImmutableList.copyOf(requireNonNull(sortChannels, "sortChannels is null"));
+            this.sortOrder = ImmutableList.copyOf(requireNonNull(sortOrder, "sortOrder is null"));
         }
 
         @Override
-        public OuterJoinResultProcessingOperator createOperator(DriverContext driverContext)
+        public SortMergeOuterJoinResultProcessingOperator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OuterJoinResultProcessingOperator.class.getSimpleName());
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, SortMergeOuterJoinResultProcessingOperator.class.getSimpleName());
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
-            return new OuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
-                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, joinBridge.getHashTable(localPartitioningIndex), equalOperators);
+            return new SortMergeOuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
+                    leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, equalOperators, joinBridge.getLeftJoinResult(localPartitioningIndex),
+                    sortChannels, sortOrder, joinBridge.getLeftPagesIndex(localPartitioningIndex), joinBridge.getSortFinishedCnt(localPartitioningIndex), joinBridge.getSortFinishedFuture(localPartitioningIndex));
         }
 
         @Override
