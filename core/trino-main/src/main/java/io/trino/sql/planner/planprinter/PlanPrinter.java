@@ -85,6 +85,7 @@ import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticAggregations;
@@ -498,6 +499,43 @@ public class PlanPrinter
             node.getBuild().accept(this, context);
             node.getOuter().accept(this, context);
 
+            return null;
+        }
+
+        @Override
+        public Void visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, Void context)
+        {
+            List<Expression> joinExpressions = new ArrayList<>();
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                joinExpressions.add(unresolveFunctions(clause.toExpression()));
+            }
+            node.getFilter()
+                    .map(PlanPrinter::unresolveFunctions)
+                    .ifPresent(joinExpressions::add);
+
+            NodeRepresentation nodeOutput;
+            if (node.isCrossJoin()) {
+                checkState(joinExpressions.isEmpty());
+                nodeOutput = addNode(node, "CrossJoin");
+            }
+            else {
+                nodeOutput = addNode(node,
+                        node.getType().getJoinLabel(),
+                        format("[%s]%s", Joiner.on(" AND ").join(joinExpressions), formatHash(node.getLeftHashSymbol(), node.getRightHashSymbol())),
+                        node.getReorderJoinStatsAndCost());
+            }
+
+            node.getDistributionType().ifPresent(distributionType -> nodeOutput.appendDetailsLine("Distribution: %s", distributionType));
+            if (node.isMaySkipOutputDuplicates()) {
+                nodeOutput.appendDetailsLine("maySkipOutputDuplicates = %s", node.isMaySkipOutputDuplicates());
+            }
+            if (!node.getDynamicFilters().isEmpty()) {
+                nodeOutput.appendDetails("dynamicFilterAssignments = %s", printDynamicFilterAssignments(node.getDynamicFilters()));
+            }
+            node.getLeftUp().accept(this, context);
+            node.getLeftDown().accept(this, context);
+            node.getRightUp().accept(this, context);
+            node.getRightDown().accept(this, context);
             return null;
         }
 

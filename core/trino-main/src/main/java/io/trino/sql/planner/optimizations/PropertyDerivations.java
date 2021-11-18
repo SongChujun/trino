@@ -64,6 +64,7 @@ import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -550,6 +551,34 @@ public final class PropertyDerivations
                 case LEFT:
                 case RIGHT:
                 case FULL:
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
+        @Override
+        public ActualProperties visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, List<ActualProperties> inputProperties)
+        {
+            ActualProperties leftProperties = inputProperties.get(0);
+            ActualProperties rightProperties = inputProperties.get(1);
+
+            boolean unordered = spillPossible(session, node.getType());
+
+            if (node.getType() == JoinNode.Type.INNER) {
+                leftProperties = leftProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+                rightProperties = rightProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+
+                Map<Symbol, NullableValue> constants = new HashMap<>();
+                constants.putAll(leftProperties.getConstants());
+                constants.putAll(rightProperties.getConstants());
+
+                if (node.isCrossJoin()) {
+                    throw new UnsupportedOperationException("Cross join not supported");
+                }
+
+                return ActualProperties.builderFrom(leftProperties)
+                        .constants(constants)
+                        .unordered(unordered)
+                        .build();
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }

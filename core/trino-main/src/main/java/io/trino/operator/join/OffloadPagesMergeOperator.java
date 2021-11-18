@@ -35,10 +35,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.spi.connector.SortOrder.ASC_NULLS_LAST;
 import static java.util.Objects.requireNonNull;
 
-public class AdaptivePagesMergeOperator
+public class OffloadPagesMergeOperator
         implements Operator
 {
-    public static class AdaptivePagesMergeOperatorFactory
+    public static class OffloadPagesMergeOperatorFactory
             implements OperatorFactory
     {
         private final int operatorId;
@@ -53,7 +53,7 @@ public class AdaptivePagesMergeOperator
         private final SortMergeJoinBridge bridge;
         private boolean closed;
 
-        public AdaptivePagesMergeOperatorFactory(
+        public OffloadPagesMergeOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
                 List<Type> leftTypes,
@@ -81,25 +81,28 @@ public class AdaptivePagesMergeOperator
         public Operator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, PagesMergeOperator.class.getSimpleName());
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OffloadPagesMergeOperator.class.getSimpleName());
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
             for (int i = 0; i < leftMergeChannels.size(); i++) {
                 sortOrder.add(ASC_NULLS_LAST);
             }
 
-            List<PagesIndex> pagesIndexPair = bridge.getNextUpSortedPagesPair();
-            PagesIndex leftPagesIndex = pagesIndexPair.get(0);
-            PagesIndex rightPagesIndex = pagesIndexPair.get(1);
-            List<Page> leftJoinResult = bridge.getNextLeftJoinResult();
-            PagesIndexComparator leftPagesIndexComparator = leftPagesIndex.createPagesIndexComparator(leftMergeChannels, sortOrder.build()).getComparator();
-            PagesIndexComparator rightPagesIndexComparator = rightPagesIndex.createPagesIndexComparator(rightMergeChannels, sortOrder.build()).getComparator();
+            List<PagesIndex> upPagesIndexPair = bridge.getNextUpSortedPagesPair();
+            List<PagesIndex> downPagesIndexPair = bridge.getNextDownSortedPagesPair();
+
+            PagesIndex leftUpPagesIndex = upPagesIndexPair.get(0);
+            PagesIndex leftDownPagesIndex = downPagesIndexPair.get(0);
+            PagesIndex rightUpPagesIndex = upPagesIndexPair.get(1);
+            PagesIndex rightDownPagesIndex = downPagesIndexPair.get(1);
+            PagesIndexComparator leftPagesIndexComparator = leftUpPagesIndex.createPagesIndexComparator(leftMergeChannels, sortOrder.build()).getComparator();
+            PagesIndexComparator rightPagesIndexComparator = rightUpPagesIndex.createPagesIndexComparator(rightMergeChannels, sortOrder.build()).getComparator();
 
             List<Type> leftOutputTypes = leftOutputChannels.stream().map(leftTypes::get).collect(toImmutableList());
             List<Type> rightOutputTypes = rightOutputChannels.stream().map(rightTypes::get).collect(toImmutableList());
 
-            SortMergePageBuilder pageBuilder = new SortMergePageBuilder(leftPagesIndex, rightPagesIndex, leftOutputTypes, rightOutputTypes, leftOutputChannels, rightOutputChannels);
-            return new AdaptivePagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftPagesIndex, rightPagesIndex, leftJoinResult,
+            SortMergePageBuilder pageBuilder = new SortMergePageBuilder(leftUpPagesIndex, rightUpPagesIndex, leftOutputTypes, rightOutputTypes, leftOutputChannels, rightOutputChannels);
+            return new OffloadPagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftUpPagesIndex, leftDownPagesIndex, rightUpPagesIndex, rightDownPagesIndex,
                     leftPagesIndexComparator, rightPagesIndexComparator, bridge.getNextFinishedFuture(), joinEqualOperators,
                     pageBuilder);
         }
@@ -117,24 +120,31 @@ public class AdaptivePagesMergeOperator
         }
     }
 
-    private final List<Page> leftJoinResult;
+    private final PagesIndex leftUpSortedPagesIndex;
+    private final PagesIndex leftDownSortedPagesIndex;
+    private final PagesIndex rightUpSortedPagesIndex;
+    private final PagesIndex rightDownSortedPagesIndex;
     private final PagesMergeOperator pagesMergeOperator;
 
-    public AdaptivePagesMergeOperator(OperatorContext operatorContext,
+    public OffloadPagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
             List<Integer> rightMergeChannels,
-            PagesIndex leftSortedPagesIndex,
-            PagesIndex rightSortedPagesIndex,
-            List<Page> leftJoinResult,
+            PagesIndex leftUpSortedPagesIndex,
+            PagesIndex leftDownSortedPagesIndex,
+            PagesIndex rightUpSortedPagesIndex,
+            PagesIndex rightDownSortedPagesIndex,
             PagesIndexComparator leftPagesIndexComparator,
             PagesIndexComparator rightPagesIndexComparator,
             SettableFuture<Boolean> sortFinishedFuture,
             List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators,
             SortMergePageBuilder pageBuilder)
     {
-        pagesMergeOperator = new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftSortedPagesIndex, rightSortedPagesIndex,
+        this.leftUpSortedPagesIndex = leftUpSortedPagesIndex;
+        this.leftDownSortedPagesIndex = leftDownSortedPagesIndex;
+        this.rightUpSortedPagesIndex = rightUpSortedPagesIndex;
+        this.rightDownSortedPagesIndex = rightDownSortedPagesIndex;
+        pagesMergeOperator = new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftUpSortedPagesIndex, rightUpSortedPagesIndex,
                 leftPagesIndexComparator, rightPagesIndexComparator, sortFinishedFuture, joinEqualOperators, pageBuilder);
-        this.leftJoinResult = requireNonNull(leftJoinResult);
     }
 
     @Override
@@ -152,7 +162,7 @@ public class AdaptivePagesMergeOperator
     @Override
     public boolean isFinished()
     {
-        return pagesMergeOperator.isFinished() && leftJoinResult.isEmpty();
+        return pagesMergeOperator.isFinished();
     }
 
     @Override
@@ -176,8 +186,11 @@ public class AdaptivePagesMergeOperator
     @Override
     public Page getOutput()
     {
-        if (!leftJoinResult.isEmpty()) {
-            return leftJoinResult.remove(0);
+        if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
+            leftUpSortedPagesIndex.addPagesIndex(leftDownSortedPagesIndex);
+            rightUpSortedPagesIndex.addPagesIndex(rightDownSortedPagesIndex);
+            leftDownSortedPagesIndex.clear();
+            rightDownSortedPagesIndex.clear();
         }
         return pagesMergeOperator.getOutput();
     }

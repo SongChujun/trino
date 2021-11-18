@@ -25,43 +25,61 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class SortMergeJoinBridge
 {
-    public List<PagesIndex> leftPagesIndexList;
-    public List<PagesIndex> rightPagesIndexList;
-    public List<List<Page>> leftJoinResults;
-    public List<SettableFuture<Boolean>> sortFinishedFutureList;
-    public List<AtomicInteger> sortFinishedCntList;
+    private List<PagesIndex> leftUpPagesIndexList;
+    private List<PagesIndex> leftDownInputList;
+    private List<PagesIndex> rightUpPagesIndexList;
+    private List<PagesIndex> rightDownInputList;
+    private List<List<Page>> leftJoinResults;
+    private List<SettableFuture<Boolean>> sortFinishedFutureList;
+    private List<AtomicInteger> sortFinishedCntList;
 
-    private int sortedPagesIdx;
+    private int upSortedPagesIdx;
+    private int downSortedPagesIdx;
     private int sortedFutureIdx;
     private int leftJoinResultIdx;
 
     public SortMergeJoinBridge(int size, List<Type> leftSourceTypes, List<Type> rightSourceTypes, PagesIndex.Factory pagesIndexFactory, int expectedPositions)
     {
-        leftPagesIndexList = new ArrayList<>();
+        leftUpPagesIndexList = new ArrayList<>();
+        leftDownInputList = new ArrayList<>();
+        rightUpPagesIndexList = new ArrayList<>();
+        rightDownInputList = new ArrayList<>();
         sortFinishedFutureList = new ArrayList<>();
-        rightPagesIndexList = new ArrayList<>();
         sortFinishedCntList = new ArrayList<>();
         leftJoinResults = new ArrayList<>();
         for (int i = 0; i < size; i++) {
-            leftPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
-            rightPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
+            leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
+            leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
+            rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
+            rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
             leftJoinResults.add(new LinkedList<>());
             sortFinishedFutureList.add(SettableFuture.create());
             sortFinishedCntList.add(new AtomicInteger(0));
         }
-        sortedPagesIdx = 0;
+        upSortedPagesIdx = 0;
+        downSortedPagesIdx = 0;
         sortedFutureIdx = 0;
         leftJoinResultIdx = 0;
     }
 
-    public PagesIndex getLeftPagesIndex(int pos)
+    public PagesIndex getLeftUpPagesIndex(int pos)
     {
-        return leftPagesIndexList.get(pos);
+        return leftUpPagesIndexList.get(pos);
     }
 
-    public PagesIndex getRightPagesIndex(int pos)
+    public PagesIndex getLeftDownPagesIndex(int pos)
     {
-        return rightPagesIndexList.get(pos);
+        return leftDownInputList.get(pos);
+    }
+
+    public PagesIndex getRightUpPagesIndex(int pos)
+    {
+        return rightUpPagesIndexList.get(pos);
+    }
+
+    public PagesIndex getRightDownPagesIndex(int pos)
+    {
+        return rightDownInputList.get(pos);
     }
 
     public List<Page> getLeftJoinResult(int pos)
@@ -79,12 +97,21 @@ public class SortMergeJoinBridge
         return sortFinishedCntList.get(pos);
     }
 
-    public List<PagesIndex> getNextSortedPagesPair()
+    public List<PagesIndex> getNextUpSortedPagesPair()
     {
         List<PagesIndex> res = new ArrayList<>();
-        res.add(leftPagesIndexList.get(sortedPagesIdx));
-        res.add(rightPagesIndexList.get(sortedPagesIdx));
-        sortedPagesIdx += 1;
+        res.add(leftUpPagesIndexList.get(upSortedPagesIdx));
+        res.add(rightUpPagesIndexList.get(upSortedPagesIdx));
+        upSortedPagesIdx += 1;
+        return res;
+    }
+
+    public List<PagesIndex> getNextDownSortedPagesPair()
+    {
+        List<PagesIndex> res = new ArrayList<>();
+        res.add(leftDownInputList.get(downSortedPagesIdx));
+        res.add(rightDownInputList.get(downSortedPagesIdx));
+        downSortedPagesIdx += 1;
         return res;
     }
 

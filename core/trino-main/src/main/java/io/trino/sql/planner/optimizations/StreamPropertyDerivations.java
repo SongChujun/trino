@@ -54,6 +54,7 @@ import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -249,12 +250,31 @@ public final class StreamPropertyDerivations
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
 
+        @Override
+        public StreamProperties visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, List<StreamProperties> inputProperties)
+        {
+            StreamProperties leftProperties = inputProperties.get(0);
+            boolean unordered = spillPossible(session, node);
+
+            if (node.getType() == JoinNode.Type.INNER) {
+                return leftProperties
+                        .translate(column -> PropertyDerivations.filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column))
+                        .unordered(unordered);
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
         private static boolean spillPossible(Session session, JoinNode node)
         {
             return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
         }
 
         private static boolean spillPossible(Session session, AdaptiveJoinNode node)
+        {
+            return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
+        }
+
+        private static boolean spillPossible(Session session, SortMergeAdaptiveJoinNode node)
         {
             return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
         }

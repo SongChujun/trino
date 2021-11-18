@@ -243,7 +243,7 @@ public class SortMergeOuterJoinResultProcessingOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             return new SortMergeOuterJoinResultProcessingOperator(operatorContext, isInnerJoin,
                     leftPrimaryKeyChannels, leftJoinChannels, rightJoinChannels, outputChannels, leftColumnsSize, equalOperators, joinBridge.getLeftJoinResult(localPartitioningIndex),
-                    sortChannels, sortOrder, joinBridge.getLeftPagesIndex(localPartitioningIndex), joinBridge.getSortFinishedCnt(localPartitioningIndex), joinBridge.getSortFinishedFuture(localPartitioningIndex));
+                    sortChannels, sortOrder, joinBridge.getLeftUpPagesIndex(localPartitioningIndex), joinBridge.getSortFinishedCnt(localPartitioningIndex), joinBridge.getSortFinishedFuture(localPartitioningIndex));
         }
 
         @Override

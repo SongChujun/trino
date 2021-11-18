@@ -51,6 +51,7 @@ import io.trino.sql.planner.plan.PlanVisitor;
 import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -789,6 +790,44 @@ public class AddLocalExchanges
             }
             PlanWithProperties build = planAndEnforce(node.getBuild(), buildPreference, buildPreference);
             return rebaseAndDeriveProperties(node, ImmutableList.of(build, outer));
+        }
+
+        @Override
+        public PlanWithProperties visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            PlanWithProperties leftUp;
+            PlanWithProperties leftDown;
+            List<Symbol> leftHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
+            StreamPreferredProperties leftPreference;
+            if (getTaskConcurrency(session) > 1) {
+                leftPreference = exactlyPartitionedOn(leftHashSymbols);
+            }
+            else {
+                leftPreference = singleStream();
+            }
+
+            leftUp = planAndEnforce(
+                    node.getLeftUp(),
+                    leftPreference,
+                    leftPreference);
+
+            leftDown = planAndEnforce(
+                    node.getLeftDown(),
+                    leftPreference,
+                    leftPreference);
+
+            // this build consumes the input completely, so we do not pass through parent preferences
+            List<Symbol> rightHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
+            StreamPreferredProperties rightPreference;
+            if (getTaskConcurrency(session) > 1) {
+                rightPreference = exactlyPartitionedOn(rightHashSymbols);
+            }
+            else {
+                rightPreference = singleStream();
+            }
+            PlanWithProperties rightUp = planAndEnforce(node.getRightUp(), rightPreference, rightPreference);
+            PlanWithProperties rightDown = planAndEnforce(node.getRightDown(), rightPreference, rightPreference);
+            return rebaseAndDeriveProperties(node, ImmutableList.of(leftUp, leftDown, rightUp, rightDown));
         }
 
         @Override

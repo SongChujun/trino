@@ -56,6 +56,7 @@ import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
 import io.trino.sql.planner.plan.SetOperationNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticAggregationsDescriptor;
@@ -463,6 +464,44 @@ public final class ValidateDependenciesChecker
             if (node.getFilter().isPresent() || node.isCrossJoin()) {
                 throw new IllegalStateException("filter is not supported");
             }
+            return null;
+        }
+
+        @Override
+        public Void visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, Set<Symbol> boundSymbols)
+        {
+            node.getLeftUp().accept(this, boundSymbols);
+            node.getRightUp().accept(this, boundSymbols);
+
+            Set<Symbol> leftInputs = createInputs(node.getLeftUp(), boundSymbols);
+            Set<Symbol> rightInputs = createInputs(node.getRightUp(), boundSymbols);
+            Set<Symbol> allInputs = ImmutableSet.<Symbol>builder()
+                    .addAll(leftInputs)
+                    .addAll(rightInputs)
+                    .build();
+
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                checkArgument(leftInputs.contains(clause.getLeft()), "Symbol from join clause (%s) not in left source (%s)", clause.getLeft(), node.getLeftUp().getOutputSymbols());
+                checkArgument(rightInputs.contains(clause.getRight()), "Symbol from join clause (%s) not in right source (%s)", clause.getRight(), node.getRightUp().getOutputSymbols());
+            }
+
+            node.getFilter().ifPresent(predicate -> {
+                Set<Symbol> predicateSymbols = extractUnique(predicate);
+                checkArgument(
+                        allInputs.containsAll(predicateSymbols),
+                        "Symbol from filter (%s) not in sources (%s)",
+                        predicateSymbols,
+                        allInputs);
+            });
+
+            if (node.isCrossJoin()) {
+                Set<Symbol> inputs = ImmutableSet.<Symbol>builder()
+                        .addAll(node.getLeftUp().getOutputSymbols())
+                        .addAll(node.getRightUp().getOutputSymbols())
+                        .build();
+                checkDependencies(node.getOutputSymbols(), inputs, "Cross join output symbols (%s) must contain all of the source symbols (%s)", node.getOutputSymbols(), inputs);
+            }
+
             return null;
         }
 

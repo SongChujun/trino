@@ -63,6 +63,7 @@ import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -1032,6 +1033,14 @@ public class UnaliasSymbolReferences
 
         @Override
         public PlanAndMappings visitAdaptiveJoin(AdaptiveJoinNode node, UnaliasContext context)
+        {
+            //not implemented here
+            return new PlanAndMappings(
+                    node, new HashMap<>());
+        }
+
+        @Override
+        public PlanAndMappings visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, UnaliasContext context)
         {
             //not implemented here
             return new PlanAndMappings(

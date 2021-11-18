@@ -92,7 +92,7 @@ public class PagesMergeOperator
                 sortOrder.add(ASC_NULLS_LAST);
             }
 
-            List<PagesIndex> pagesIndexPair = bridge.getNextSortedPagesPair();
+            List<PagesIndex> pagesIndexPair = bridge.getNextUpSortedPagesPair();
             PagesIndex leftPagesIndex = pagesIndexPair.get(0);
             PagesIndex rightPagesIndex = pagesIndexPair.get(1);
             PagesIndexComparator leftPagesIndexComparator = leftPagesIndex.createPagesIndexComparator(leftMergeChannels, sortOrder.build()).getComparator();

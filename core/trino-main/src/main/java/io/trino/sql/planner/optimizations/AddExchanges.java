@@ -62,6 +62,7 @@ import io.trino.sql.planner.plan.PlanVisitor;
 import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -756,6 +757,26 @@ public class AddExchanges
             }
         }
 
+        @Override
+        public PlanWithProperties visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, PreferredProperties preferredProperties)
+        {
+            List<Symbol> leftSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getLeft)
+                    .collect(toImmutableList());
+            List<Symbol> rightSymbols = node.getCriteria().stream()
+                    .map(JoinNode.EquiJoinClause::getRight)
+                    .collect(toImmutableList());
+
+            JoinNode.DistributionType distributionType = node.getDistributionType().orElseThrow(() -> new IllegalArgumentException("distributionType not yet set"));
+
+            if (distributionType == JoinNode.DistributionType.REPLICATED) {
+                throw new UnsupportedOperationException("REPLICATED JOIN not supported yet");
+            }
+            else {
+                return planPartitionedSortMergeAdaptiveJoin(node, leftSymbols, rightSymbols);
+            }
+        }
+
         private PlanWithProperties planPartitionedJoin(JoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols)
         {
             return planPartitionedJoin(node, leftSymbols, rightSymbols, node.getLeft().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(leftSymbols))));
@@ -812,6 +833,76 @@ public class AddExchanges
         private PlanWithProperties planPartitionedAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols)
         {
             return planPartitionedAdaptiveJoin(node, leftSymbols, rightSymbols, node.getBuild().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(rightSymbols))));
+        }
+
+        private PlanWithProperties planPartitionedSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols)
+        {
+            return planPartitionedSortMergeAdaptiveJoin(node, leftSymbols, rightSymbols, node.getLeftUp().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(leftSymbols))));
+        }
+
+        private PlanWithProperties planPartitionedSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, PlanWithProperties leftUp)
+        {
+            SetMultimap<Symbol, Symbol> rightToLeft = createMapping(rightSymbols, leftSymbols);
+            SetMultimap<Symbol, Symbol> leftToRight = createMapping(leftSymbols, rightSymbols);
+
+            PlanWithProperties rightUp;
+            PlanWithProperties rightDown;
+            PlanWithProperties leftDown = node.getLeftDown().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(leftSymbols)));
+            if (leftUp.getProperties().isNodePartitionedOn(leftSymbols) && !leftUp.getProperties().isSingleNode()) {
+                Partitioning rightPartitioning = leftUp.getProperties().translate(createTranslator(leftToRight)).getNodePartitioning().get();
+                rightUp = node.getRightUp().accept(this, PreferredProperties.partitioned(rightPartitioning));
+                if (!rightUp.getProperties().isCompatibleTablePartitioningWith(leftUp.getProperties(), rightToLeft::get, metadata, session)) {
+                    rightUp = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, rightUp.getNode(), new PartitioningScheme(rightPartitioning, rightUp.getNode().getOutputSymbols())),
+                            rightUp.getProperties());
+                }
+                rightDown = node.getRightDown().accept(this, PreferredProperties.partitioned(rightPartitioning));
+                if (!rightDown.getProperties().isCompatibleTablePartitioningWith(leftUp.getProperties(), rightToLeft::get, metadata, session)) {
+                    rightDown = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, rightDown.getNode(), new PartitioningScheme(rightPartitioning, rightDown.getNode().getOutputSymbols())),
+                            rightDown.getProperties());
+                }
+            }
+            else {
+                rightUp = node.getRightUp().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(rightSymbols)));
+                rightDown = node.getRightDown().accept(this, PreferredProperties.partitioned(ImmutableSet.copyOf(rightSymbols)));
+
+                if (rightUp.getProperties().isNodePartitionedOn(rightSymbols) && !rightUp.getProperties().isSingleNode()) {
+                    Partitioning leftPartitioning = rightUp.getProperties().translate(createTranslator(rightToLeft)).getNodePartitioning().get();
+                    leftUp = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, leftUp.getNode(), new PartitioningScheme(leftPartitioning, leftUp.getNode().getOutputSymbols())),
+                            leftUp.getProperties());
+                    leftDown = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, leftDown.getNode(), new PartitioningScheme(leftPartitioning, leftDown.getNode().getOutputSymbols())),
+                            leftDown.getProperties());
+                }
+                else {
+                    leftUp = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, leftUp.getNode(), leftSymbols, Optional.empty()),
+                            leftUp.getProperties());
+                    leftDown = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, leftDown.getNode(), leftSymbols, Optional.empty()),
+                            leftDown.getProperties());
+
+                    rightUp = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, rightUp.getNode(), rightSymbols, Optional.empty()),
+                            rightUp.getProperties());
+
+                    rightDown = withDerivedProperties(
+                            partitionedExchange(idAllocator.getNextId(), REMOTE, rightDown.getNode(), rightSymbols, Optional.empty()),
+                            rightDown.getProperties());
+                }
+            }
+
+            verify(leftUp.getProperties().isCompatibleTablePartitioningWith(rightUp.getProperties(), leftToRight::get, metadata, session));
+            verify(leftDown.getProperties().isCompatibleTablePartitioningWith(rightDown.getProperties(), leftToRight::get, metadata, session));
+
+            // if colocated joins are disabled, force redistribute when using a custom partitioning
+            if (!isColocatedJoinEnabled(session) && hasMultipleSources(leftUp.getNode(), leftDown.getNode(), rightUp.getNode(), rightDown.getNode())) {
+                throw new IllegalStateException("Unsupported yet");
+            }
+
+            return buildSortMergeAdaptiveJoin(node, leftUp, leftDown, rightUp, rightDown, JoinNode.DistributionType.PARTITIONED);
         }
 
         private PlanWithProperties planPartitionedAdaptiveJoin(AdaptiveJoinNode node, List<Symbol> leftSymbols, List<Symbol> rightSymbols, PlanWithProperties build)
@@ -917,6 +1008,30 @@ public class AddExchanges
                     node.getReorderJoinStatsAndCost());
 
             return new PlanWithProperties(result, deriveProperties(result, ImmutableList.of(newBuild.getProperties(), newOuter.getProperties())));
+        }
+
+        private PlanWithProperties buildSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, PlanWithProperties newLeftUp, PlanWithProperties newLeftDown, PlanWithProperties newRightUp, PlanWithProperties newRightDown, JoinNode.DistributionType newDistributionType)
+        {
+            SortMergeAdaptiveJoinNode result = new SortMergeAdaptiveJoinNode(
+                    node.getId(),
+                    node.getType(),
+                    newLeftUp.getNode(),
+                    newLeftDown.getNode(),
+                    newRightUp.getNode(),
+                    newRightDown.getNode(),
+                    node.getCriteria(),
+                    node.getLeftOutputSymbols(),
+                    node.getRightOutputSymbols(),
+                    node.isMaySkipOutputDuplicates(),
+                    node.getFilter(),
+                    node.getLeftHashSymbol(),
+                    node.getRightHashSymbol(),
+                    Optional.of(newDistributionType),
+                    node.isSpillable(),
+                    node.getDynamicFilters(),
+                    node.getReorderJoinStatsAndCost());
+
+            return new PlanWithProperties(result, deriveProperties(result, ImmutableList.of(newLeftUp.getProperties(), newRightUp.getProperties())));
         }
 
         @Override

@@ -22,6 +22,7 @@ import io.trino.Session;
 import io.trino.geospatial.Rectangle;
 import io.trino.operator.SpatialIndexBuilderOperator.SpatialPredicate;
 import io.trino.operator.join.JoinHashSupplier;
+import io.trino.operator.join.JoinUtils;
 import io.trino.operator.join.LookupSource;
 import io.trino.operator.join.LookupSourceSupplier;
 import io.trino.spi.Page;
@@ -240,6 +241,14 @@ public class PagesIndex
             valueAddresses.add(sliceAddress);
         }
         estimatedSize = calculateEstimatedSize();
+    }
+
+    public void addPagesIndex(PagesIndex pagesIndex)
+    {
+        List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
+        for (Page page : pages) {
+            this.addPage(page);
+        }
     }
 
     public DataSize getEstimatedSize()

@@ -52,6 +52,7 @@ import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.SampleNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SortNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
@@ -233,6 +234,21 @@ public class DistributedExecutionPlanner
             return ImmutableMap.<PlanNodeId, SplitSource>builder()
                     .putAll(buildSplits)
                     .putAll(outerSplits)
+                    .build();
+        }
+
+        @Override
+        public Map<PlanNodeId, SplitSource> visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, Void context)
+        {
+            Map<PlanNodeId, SplitSource> leftUpSplits = node.getLeftUp().accept(this, context);
+            Map<PlanNodeId, SplitSource> leftDownSplits = node.getLeftDown().accept(this, context);
+            Map<PlanNodeId, SplitSource> rightUpSplits = node.getRightUp().accept(this, context);
+            Map<PlanNodeId, SplitSource> rightDownSplits = node.getRightDown().accept(this, context);
+            return ImmutableMap.<PlanNodeId, SplitSource>builder()
+                    .putAll(leftUpSplits)
+                    .putAll(leftDownSplits)
+                    .putAll(rightUpSplits)
+                    .putAll(rightDownSplits)
                     .build();
         }
 

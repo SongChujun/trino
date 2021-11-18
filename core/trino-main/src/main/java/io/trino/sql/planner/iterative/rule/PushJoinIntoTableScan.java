@@ -47,6 +47,7 @@ import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.Patterns;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.tree.BooleanLiteral;
 import io.trino.sql.tree.ComparisonExpression;
@@ -130,11 +131,20 @@ public class PushJoinIntoTableScan
         boolean useHybridJoin = false;
 
         ComparisonExpression buildFilterPredicate = null;
+        ComparisonExpression leftFilterPredicateUp = null;
+        ComparisonExpression leftFilterPredicateDown = null;
+        ComparisonExpression rightFilterPredicateUp = null;
+        ComparisonExpression rightFilterPredicateDown = null;
+
         ComparisonExpression outerFilterPredicate = null;
-        Symbol filterSymbol = null;
-        LongLiteral delimiter = null;
+        Symbol rightFilterSymbol = null;
+        LongLiteral rightDelimiter = null;
+        Symbol leftFilterSymbol;
+        LongLiteral leftDelimiter;
         List<ColumnHandle> leftPrimaryKeyColumnHandles = ImmutableList.of();
         List<Symbol> leftPrimaryKeySymbols = null;
+        boolean leftPushdown = true;
+        boolean rightPushdown = true;
         if (isHybridJoinEnabled(context.getSession())) {
             List<String> leftPrimaryKeyColumns = metadata.getPrimaryKeyColumns(context.getSession(), left.getTable());
             if (!leftPrimaryKeyColumns.isEmpty()) {
@@ -168,7 +178,7 @@ public class PushJoinIntoTableScan
                     }
 
                     List<String> leftNotIncludedPrimaryKeyStrs = leftPrimaryKeyColumns.stream().filter(str -> !leftColumnHandles.containsKey(str)).collect(toImmutableList());
-
+                    Optional<ColumnHandle> firstLeftPrimaryKeyColumnHandle;
                     if (!leftNotIncludedPrimaryKeyStrs.isEmpty()) {
                         TableSchema leftTableSchema = metadata.getTableSchema(context.getSession(), left.getTable());
                         TableHandle leftTableHandle = metadata.getTableHandle(context.getSession(), leftTableSchema.getQualifiedName()).get();
@@ -193,17 +203,45 @@ public class PushJoinIntoTableScan
                                 false,
                                 left.getUseConnectorNodePartitioning());
                         leftPrimaryKeyColumnHandles = leftColumnHandlesAll.entrySet().stream().filter(cl -> leftPrimaryKeyColumns.contains(cl.getKey())).map(Map.Entry::getValue).collect(toImmutableList());
+                        firstLeftPrimaryKeyColumnHandle = leftColumnHandlesAll.entrySet().stream().filter(cl -> cl.getKey().equals(leftPrimaryKeyColumns.get(0))).map(Map.Entry::getValue).findFirst();
                     }
                     else {
                         leftPrimaryKeyColumnHandles = leftColumnHandles.entrySet().stream().filter(cl -> leftPrimaryKeyColumns.contains(cl.getKey())).map(Map.Entry::getValue).collect(toImmutableList());
+                        firstLeftPrimaryKeyColumnHandle = leftColumnHandles.entrySet().stream().filter(cl -> cl.getKey().equals(leftPrimaryKeyColumns.get(0))).map(Map.Entry::getValue).findFirst();
                     }
                     List<ColumnHandle> finalLeftPrimaryKeyColumnHandles = leftPrimaryKeyColumnHandles;
                     leftPrimaryKeySymbols = left.getAssignments().entrySet().stream().filter(a -> finalLeftPrimaryKeyColumnHandles.contains(a.getValue())).map(Map.Entry::getKey).collect(toImmutableList());
 
+                    if (true) {
+                        double hybridJoinLeftPushdownRatio = 0.5;
+                        Optional<ColumnHandle> finalFirstLeftPrimaryKeyColumnHandle = firstLeftPrimaryKeyColumnHandle;
+                        leftFilterSymbol = left.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(finalFirstLeftPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
+                        if (leftFilterSymbol == null) {
+                            throw new IllegalStateException();
+                        }
+                        List<Object> leftColumnMinMax = metadata.getNthPercentile(context.getSession(), left.getTable(), firstLeftPrimaryKeyColumnHandle.get());
+                        Object leftMinColumnVal = leftColumnMinMax.get(0);
+                        Object leftMaxVColumnVal = leftColumnMinMax.get(1);
+                        if ((leftMinColumnVal instanceof Integer)) {
+                            int intLeftMinColumnVal = (Integer) leftMinColumnVal;
+                            int intLeftMaxColumnVal = (Integer) leftMaxVColumnVal;
+                            int leftDelimiterVal = intLeftMinColumnVal + (int) (hybridJoinLeftPushdownRatio * (intLeftMaxColumnVal - intLeftMinColumnVal));
+                            leftDelimiter = new LongLiteral(String.valueOf(leftDelimiterVal));
+                            leftFilterPredicateUp = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, leftDelimiter, leftFilterSymbol.toSymbolReference());
+                            leftFilterPredicateDown = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, leftDelimiter, leftFilterSymbol.toSymbolReference());
+                        }
+                        else {
+                            leftPushdown = false;
+                        }
+                    }
+
                     double hybridJoinPushdownRatio = 1 - getHybridJoinPushdownRatio(context.getSession());
                     List<Object> nthPercentile = metadata.getNthPercentile(context.getSession(), right.getTable(), firstRightPrimaryKeyColumnHandle.get());
                     Optional<ColumnHandle> finalFirstRightPrimaryKeyColumnHandle = firstRightPrimaryKeyColumnHandle;
-                    filterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(finalFirstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
+                    rightFilterSymbol = right.getAssignments().entrySet().stream().filter(entry -> entry.getValue().equals(finalFirstRightPrimaryKeyColumnHandle.get())).map(Map.Entry::getKey).findFirst().orElse(null);
+                    if (rightFilterSymbol == null) {
+                        throw new IllegalStateException();
+                    }
 
                     Object minColumnVal = nthPercentile.get(0);
                     Object maxVColumnVal = nthPercentile.get(1);
@@ -211,6 +249,9 @@ public class PushJoinIntoTableScan
                         int intMinColumnVal = (Integer) minColumnVal;
                         int intMaxColumnVal = (Integer) maxVColumnVal;
                         int delimiterVal = intMinColumnVal + (int) (hybridJoinPushdownRatio * (intMaxColumnVal - intMinColumnVal));
+                        rightDelimiter = new LongLiteral(String.valueOf(delimiterVal));
+                        rightFilterPredicateUp = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, rightDelimiter, rightFilterSymbol.toSymbolReference());
+                        rightFilterPredicateDown = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, rightDelimiter, rightFilterSymbol.toSymbolReference());
                         useHybridJoin = true;
                         if (delimiterVal <= intMinColumnVal) {
                             useHybridJoin = false;
@@ -219,16 +260,45 @@ public class PushJoinIntoTableScan
                             return Result.empty();
                         }
                         else {
-                            delimiter = new LongLiteral(String.valueOf(delimiterVal));
-                            buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiter, filterSymbol.toSymbolReference());
-                            outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiter, filterSymbol.toSymbolReference());
+                            buildFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, rightDelimiter, rightFilterSymbol.toSymbolReference());
+                            outerFilterPredicate = new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, rightDelimiter, rightFilterSymbol.toSymbolReference());
                         }
                     }
                     else {
                         useHybridJoin = false;
+                        rightPushdown = false;
                     }
                 }
             }
+        }
+
+        if (/*&&*/  leftPushdown && rightPushdown) {
+            PlanNode rightUp = new FilterNode(context.getIdAllocator().getNextId(), right, rightFilterPredicateUp);
+            TableScanNode rightDownTableScanNode = new TableScanNode(context.getIdAllocator().getNextId(), right.getTable(), right.getOutputSymbols(), right.getAssignments(), right.getEnforcedConstraint(), right.getStatistics(), false, right.getUseConnectorNodePartitioning());
+            PlanNode rightDown = new FilterNode(context.getIdAllocator().getNextId(), rightDownTableScanNode, rightFilterPredicateDown);
+            PlanNode leftUp = new FilterNode(context.getIdAllocator().getNextId(), left, leftFilterPredicateUp);
+            TableScanNode leftDownTableScanNode = new TableScanNode(context.getIdAllocator().getNextId(), left.getTable(), left.getOutputSymbols(), left.getAssignments(), left.getEnforcedConstraint(), left.getStatistics(), false, left.getUseConnectorNodePartitioning());
+
+            PlanNode leftDown = new FilterNode(context.getIdAllocator().getNextId(), leftDownTableScanNode, leftFilterPredicateDown);
+            PlanNode offLoadSortMergeNode = new SortMergeAdaptiveJoinNode(
+                    context.getIdAllocator().getNextId(),
+                    joinNode.getType(),
+                    leftUp,
+                    leftDown,
+                    rightUp,
+                    rightDown,
+                    joinNode.getCriteria(),
+                    joinNode.getLeftOutputSymbols(),
+                    joinNode.getRightOutputSymbols(),
+                    joinNode.isMaySkipOutputDuplicates(),
+                    Optional.empty(),
+                    joinNode.getLeftHashSymbol(),
+                    joinNode.getRightHashSymbol(),
+                    joinNode.getDistributionType(),
+                    joinNode.isSpillable(),
+                    joinNode.getDynamicFilters(),
+                    joinNode.getReorderJoinStatsAndCost());
+            return Result.ofPlanNode(offLoadSortMergeNode);
         }
 
         Expression effectiveFilter = getEffectiveFilter(joinNode);
@@ -238,8 +308,8 @@ public class PushJoinIntoTableScan
         if (useHybridJoin) {
             filterCondition = new JoinCondition(
                     joinConditionOperator(outerFilterPredicate.getOperator()),
-                    new Constant(delimiter.getValue(), IntegerType.INTEGER),
-                    new Variable(filterSymbol.getName(), context.getSymbolAllocator().getTypes().get(filterSymbol)));
+                    new Constant(rightDelimiter.getValue(), IntegerType.INTEGER),
+                    new Variable(rightFilterSymbol.getName(), context.getSymbolAllocator().getTypes().get(rightFilterSymbol)));
             joinConditions = new ImmutableList.Builder<JoinCondition>()
                     .addAll(joinConditions)
                     .add(filterCondition)

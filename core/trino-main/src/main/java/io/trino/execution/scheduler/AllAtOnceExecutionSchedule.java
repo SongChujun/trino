@@ -29,6 +29,7 @@ import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanVisitor;
 import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 import io.trino.sql.planner.plan.SpatialJoinNode;
 import io.trino.sql.planner.plan.UnionNode;
 
@@ -147,6 +148,16 @@ public class AllAtOnceExecutionSchedule
         {
             node.getBuild().accept(this, context);
             node.getOuter().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, Void context)
+        {
+            node.getLeftUp().accept(this, context);
+            node.getLeftDown().accept(this, context);
+            node.getRightUp().accept(this, context);
+            node.getRightDown().accept(this, context);
             return null;
         }
 

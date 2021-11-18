@@ -63,10 +63,13 @@ public class SortOperator
         private final OrderingCompiler orderingCompiler;
         private final SortMergeJoinBridge bridge;
         private final Placement placement;
+        private final int finishedCnt;
 
         public enum Placement {
-            LEFT,
-            RIGHT
+            LEFT_UP,
+            LEFT_DOWN,
+            RIGHT_UP,
+            RIGHT_DOWN
         }
 
         private boolean closed;
@@ -81,7 +84,8 @@ public class SortOperator
                 Optional<SpillerFactory> spillerFactory,
                 OrderingCompiler orderingCompiler,
                 SortMergeJoinBridge bridge,
-                Placement placement)
+                Placement placement,
+                int finishedCnt)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -94,6 +98,7 @@ public class SortOperator
             this.orderingCompiler = requireNonNull(orderingCompiler, "orderingCompiler is null");
             this.bridge = bridge;
             this.placement = placement;
+            this.finishedCnt = finishedCnt;
             checkArgument(!spillEnabled || spillerFactory.isPresent(), "Spiller Factory is not present when spill is enabled");
         }
 
@@ -104,12 +109,27 @@ public class SortOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, SortOperator.class.getSimpleName());
             PagesIndex pagesIndex;
-            if (placement == Placement.LEFT) {
-                pagesIndex = bridge.getLeftPagesIndex(localPartitioningIndex);
+            boolean inputSorted;
+            if (placement == Placement.LEFT_UP) {
+                pagesIndex = bridge.getLeftUpPagesIndex(localPartitioningIndex);
+                inputSorted = false;
+            }
+            else if (placement == Placement.LEFT_DOWN) {
+                pagesIndex = bridge.getLeftDownPagesIndex(localPartitioningIndex);
+                inputSorted = true;
+            }
+            else if (placement == Placement.RIGHT_UP) {
+                pagesIndex = bridge.getRightUpPagesIndex(localPartitioningIndex);
+                inputSorted = false;
+            }
+            else if (placement == Placement.RIGHT_DOWN) {
+                pagesIndex = bridge.getRightDownPagesIndex(localPartitioningIndex);
+                inputSorted = true;
             }
             else {
-                pagesIndex = bridge.getRightPagesIndex(localPartitioningIndex);
+                throw new UnsupportedOperationException("unsupported placement");
             }
+
             return new SortOperator(
                     operatorContext,
                     sourceTypes,
@@ -120,6 +140,8 @@ public class SortOperator
                     spillerFactory,
                     orderingCompiler,
                     bridge.getSortFinishedCnt(localPartitioningIndex),
+                    finishedCnt,
+                    inputSorted,
                     bridge.getSortFinishedFuture(localPartitioningIndex));
         }
 
@@ -163,6 +185,8 @@ public class SortOperator
     private SettableFuture<Boolean> sortFinishedFuture;
     private Iterator<Optional<Page>> sortedPages;
     private AtomicInteger sortFinishedCnt;
+    private final int finishedCnt;
+    private final boolean inputSorted;
 
     private State state = State.NEEDS_INPUT;
 
@@ -176,6 +200,8 @@ public class SortOperator
             Optional<SpillerFactory> spillerFactory,
             OrderingCompiler orderingCompiler,
             AtomicInteger sortFinishedCnt,
+            int finishedCnt,
+            boolean inputSorted,
             SettableFuture<Boolean> sortFinishedFuture)
     {
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
@@ -190,6 +216,8 @@ public class SortOperator
         this.spillerFactory = requireNonNull(spillerFactory, "spillerFactory is null");
         this.orderingCompiler = requireNonNull(orderingCompiler, "orderingCompiler is null");
         this.sortFinishedCnt = sortFinishedCnt;
+        this.finishedCnt = finishedCnt;
+        this.inputSorted = inputSorted;
         this.sortFinishedFuture = sortFinishedFuture;
         checkArgument(!spillEnabled || spillerFactory.isPresent(), "Spiller Factory is not present when spill is enabled");
     }
@@ -225,8 +253,9 @@ public class SortOperator
                     finishMemoryRevoke.run();
                 }
             }
-
-            pageIndex.sort(sortChannels, sortOrder);
+            if (!inputSorted) {
+                pageIndex.sort(sortChannels, sortOrder);
+            }
             Iterator<Page> sortedPagesIndex = pageIndex.getSortedPages();
 
             List<WorkProcessor<Page>> spilledPages = getSpilledPages();
@@ -236,7 +265,7 @@ public class SortOperator
             else {
                 sortedPages = mergeSpilledAndMemoryPages(spilledPages, sortedPagesIndex).yieldingIterator();
             }
-            if (sortFinishedCnt.incrementAndGet() == 2) {
+            if (sortFinishedCnt.incrementAndGet() == finishedCnt) {
                 sortFinishedFuture.set(true);
             }
             state = State.FINISHED;
