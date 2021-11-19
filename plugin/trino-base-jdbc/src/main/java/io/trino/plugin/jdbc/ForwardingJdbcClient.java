@@ -245,6 +245,12 @@ public abstract class ForwardingJdbcClient
     }
 
     @Override
+    public boolean supportsSort(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+    {
+        return delegate().supportsSort(session, handle, sortOrder);
+    }
+
+    @Override
     public boolean isTopNLimitGuaranteed(ConnectorSession session)
     {
         return delegate().isTopNLimitGuaranteed(session);

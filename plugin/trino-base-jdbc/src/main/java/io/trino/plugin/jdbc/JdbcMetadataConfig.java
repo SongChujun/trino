@@ -33,6 +33,7 @@ public class JdbcMetadataConfig
     private boolean aggregationPushdownEnabled = true;
 
     private boolean topNPushdownEnabled = true;
+    private boolean sortPushdownEnabled = true;
 
     // Pushed domains are transformed into SQL IN lists
     // (or sequence of range predicates) in JDBC connectors.
@@ -107,6 +108,19 @@ public class JdbcMetadataConfig
     public Boolean isTopNPushdownEnabled()
     {
         return this.topNPushdownEnabled;
+    }
+
+    @Config("sort-pushdown.enabled")
+    @ConfigDescription("Enable Sort pushdown")
+    public JdbcMetadataConfig setSortPushdownEnabled(boolean enabled)
+    {
+        this.sortPushdownEnabled = enabled;
+        return this;
+    }
+
+    public Boolean isSortPushdownEnabled()
+    {
+        return this.sortPushdownEnabled;
     }
 
     @Min(1)

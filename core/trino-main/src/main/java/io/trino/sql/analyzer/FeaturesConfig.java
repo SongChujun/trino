@@ -72,6 +72,8 @@ public class FeaturesConfig
     private DataSize joinMaxBroadcastTableSize = DataSize.of(100, MEGABYTE);
     private JoinDistributionType joinDistributionType = JoinDistributionType.AUTOMATIC;
     private JoinType joinType = JoinType.SORT_MERGE;
+    private ElasticJoinType elasticJoinType = ElasticJoinType.OFFLOAD;
+
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
     private boolean dynamicScheduleForGroupedExecution;
@@ -172,6 +174,14 @@ public class FeaturesConfig
         SORT_MERGE,
     }
 
+    public enum ElasticJoinType
+    {
+        NONE,
+        OUTER,
+        OFFLOAD,
+        UNION
+    }
+
     public enum DataIntegrityVerification
     {
         NONE,
@@ -263,6 +273,11 @@ public class FeaturesConfig
         return joinType;
     }
 
+    public ElasticJoinType getElasticJoinType()
+    {
+        return elasticJoinType;
+    }
+
     @Config("join-distribution-type")
     public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
     {
@@ -274,6 +289,13 @@ public class FeaturesConfig
     public FeaturesConfig setJoinType(JoinType joinType)
     {
         this.joinType = requireNonNull(joinType, "joinType is null");
+        return this;
+    }
+
+    @Config("elastic-join-type")
+    public FeaturesConfig setElasticJoinType(ElasticJoinType elasticJoinType)
+    {
+        this.elasticJoinType = requireNonNull(elasticJoinType, "elasticJoinType is null");
         return this;
     }
 

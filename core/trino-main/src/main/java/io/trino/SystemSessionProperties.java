@@ -25,6 +25,7 @@ import io.trino.memory.NodeMemoryConfig;
 import io.trino.spi.TrinoException;
 import io.trino.spi.session.PropertyMetadata;
 import io.trino.sql.analyzer.FeaturesConfig;
+import io.trino.sql.analyzer.FeaturesConfig.ElasticJoinType;
 import io.trino.sql.analyzer.FeaturesConfig.JoinDistributionType;
 import io.trino.sql.analyzer.FeaturesConfig.JoinReorderingStrategy;
 import io.trino.sql.analyzer.FeaturesConfig.JoinType;
@@ -125,8 +126,9 @@ public final class SystemSessionProperties
     public static final String SKIP_REDUNDANT_SORT = "skip_redundant_sort";
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
     public static final String USE_SIMPLE_JOIN = "use_simple_join";
-    public static final String USE_HYBRID_JOIN = "use_hybrid_join";
-    public static final String HYBRID_JOIN_PUSHDOWN_RATIO = "hybrid_join_pushdown_ratio";
+    public static final String ELASTIC_JOIN_TYPE = "elastic_join_type";
+    public static final String ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO = "elastic_join_right_pushdown_ratio";
+    public static final String ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO = "elastic_join_left_pushdown_ratio";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
     public static final String LATE_MATERIALIZATION = "late_materialization";
     public static final String ENABLE_DYNAMIC_FILTERING = "enable_dynamic_filtering";
@@ -184,6 +186,12 @@ public final class SystemSessionProperties
                         "Join type",
                         JoinType.class,
                         featuresConfig.getJoinType(),
+                        false),
+                enumProperty(
+                        ELASTIC_JOIN_TYPE,
+                        "elastic join type",
+                        ElasticJoinType.class,
+                        featuresConfig.getElasticJoinType(),
                         false),
                 dataSizeProperty(
                         JOIN_MAX_BROADCAST_TABLE_SIZE,
@@ -569,14 +577,14 @@ public final class SystemSessionProperties
                         "use simple join",
                         true,
                         false),
-                booleanProperty(
-                        USE_HYBRID_JOIN,
-                        "use hybrid join",
-                        false,
+                doubleProperty(
+                        ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO,
+                        "elastic join left pushdown ratio",
+                        0.5,
                         false),
                 doubleProperty(
-                        HYBRID_JOIN_PUSHDOWN_RATIO,
-                        "hybrid join pushdown ratio",
+                        ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO,
+                        "elastic join right pushdown ratio",
                         0.5,
                         false),
                 booleanProperty(
@@ -693,6 +701,11 @@ public final class SystemSessionProperties
     public static JoinType getJoinType(Session session)
     {
         return session.getSystemProperty(JOIN_TYPE, JoinType.class);
+    }
+
+    public static ElasticJoinType getElasticJoinType(Session session)
+    {
+        return session.getSystemProperty(ELASTIC_JOIN_TYPE, ElasticJoinType.class);
     }
 
     public static DataSize getJoinMaxBroadcastTableSize(Session session)
@@ -1095,14 +1108,14 @@ public final class SystemSessionProperties
         return session.getSystemProperty(USE_SIMPLE_JOIN, Boolean.class);
     }
 
-    public static boolean isHybridJoinEnabled(Session session)
+    public static double getElasticJoinLeftPushdownRatio(Session session)
     {
-        return session.getSystemProperty(USE_HYBRID_JOIN, Boolean.class);
+        return session.getSystemProperty(ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO, Double.class);
     }
 
-    public static double getHybridJoinPushdownRatio(Session session)
+    public static double getElasticJoinRightPushdownRatio(Session session)
     {
-        return session.getSystemProperty(HYBRID_JOIN_PUSHDOWN_RATIO, Double.class);
+        return session.getSystemProperty(ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO, Double.class);
     }
 
     public static boolean isPredicatePushdownUseTableProperties(Session session)

@@ -90,6 +90,7 @@ import io.trino.spi.connector.SampleApplicationResult;
 import io.trino.spi.connector.SampleType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
+import io.trino.spi.connector.SortApplicationResult;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableColumnsMetadata;
@@ -1556,6 +1557,27 @@ public final class MetadataManager
                 .map(result -> new TopNApplicationResult<>(
                         new TableHandle(catalogName, result.getHandle(), table.getTransaction(), Optional.empty()),
                         result.isTopNGuaranteed(),
+                        result.isPrecalculateStatistics()));
+    }
+
+    @Override
+    public Optional<SortApplicationResult<TableHandle>> applySort(
+            Session session,
+            TableHandle table,
+            List<SortItem> sortItems,
+            Map<String, ColumnHandle> assignments)
+    {
+        CatalogName catalogName = table.getCatalogName();
+        ConnectorMetadata metadata = getMetadata(session, catalogName);
+
+        if (metadata.usesLegacyTableLayouts()) {
+            return Optional.empty();
+        }
+
+        ConnectorSession connectorSession = session.toConnectorSession(catalogName);
+        return metadata.applySort(connectorSession, table.getConnectorHandle(), sortItems, assignments)
+                .map(result -> new SortApplicationResult<>(
+                        new TableHandle(catalogName, result.getHandle(), table.getTransaction(), Optional.empty()),
                         result.isPrecalculateStatistics()));
     }
 

@@ -33,9 +33,9 @@ public class JdbcMetadataSessionProperties
         implements SessionPropertiesProvider
 {
     public static final String JOIN_PUSHDOWN_ENABLED = "join_pushdown_enabled";
-    public static final String HYBRID_JOIN_ENABLED = "hybrid_join_enabled";
     public static final String AGGREGATION_PUSHDOWN_ENABLED = "aggregation_pushdown_enabled";
     public static final String TOPN_PUSHDOWN_ENABLED = "topn_pushdown_enabled";
+    public static final String SORT_PUSHDOWN_ENABLED = "sort_pushdown_enabled";
     public static final String DOMAIN_COMPACTION_THRESHOLD = "domain_compaction_threshold";
 
     private final List<PropertyMetadata<?>> properties;
@@ -50,12 +50,6 @@ public class JdbcMetadataSessionProperties
                         "Enable join pushdown",
                         jdbcMetadataConfig.isJoinPushdownEnabled(),
                         false))
-                .add(booleanProperty(
-                        HYBRID_JOIN_ENABLED,
-                        "Enable hybrid join",
-                        jdbcMetadataConfig.isHybridJoinEnabled(),
-                        false))
-
                 .add(booleanProperty(
                         AGGREGATION_PUSHDOWN_ENABLED,
                         "Enable aggregation pushdown",
@@ -72,6 +66,11 @@ public class JdbcMetadataSessionProperties
                         "Enable TopN pushdown",
                         jdbcMetadataConfig.isTopNPushdownEnabled(),
                         false))
+                .add(booleanProperty(
+                        SORT_PUSHDOWN_ENABLED,
+                        "Enable Sort pushdown",
+                        jdbcMetadataConfig.isSortPushdownEnabled(),
+                        false))
                 .build();
     }
 
@@ -86,11 +85,6 @@ public class JdbcMetadataSessionProperties
         return session.getProperty(JOIN_PUSHDOWN_ENABLED, Boolean.class);
     }
 
-    public static boolean isHybridJoinEnabled(ConnectorSession session)
-    {
-        return session.getProperty(HYBRID_JOIN_ENABLED, Boolean.class);
-    }
-
     public static boolean isAggregationPushdownEnabled(ConnectorSession session)
     {
         return session.getProperty(AGGREGATION_PUSHDOWN_ENABLED, Boolean.class);
@@ -99,6 +93,11 @@ public class JdbcMetadataSessionProperties
     public static boolean isTopNPushdownEnabled(ConnectorSession session)
     {
         return session.getProperty(TOPN_PUSHDOWN_ENABLED, Boolean.class);
+    }
+
+    public static boolean isSortPushdownEnabled(ConnectorSession session)
+    {
+        return session.getProperty(SORT_PUSHDOWN_ENABLED, Boolean.class);
     }
 
     public static int getDomainCompactionThreshold(ConnectorSession session)

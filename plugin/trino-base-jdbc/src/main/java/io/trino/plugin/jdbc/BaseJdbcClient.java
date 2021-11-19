@@ -516,6 +516,9 @@ public abstract class BaseJdbcClient
                 preparedQuery = preparedQuery.transformQuery(applyLimit(tableHandle.getLimit().getAsLong()));
             }
         }
+        if (tableHandle.getSortOrder().isPresent()) {
+            preparedQuery = preparedQuery.transformQuery(applySort(tableHandle.getSortOrder().get()));
+        }
 
         return preparedQuery;
     }
@@ -956,11 +959,23 @@ public abstract class BaseJdbcClient
         return Optional.empty();
     }
 
+    protected Optional<SortFunction> sortFunction()
+    {
+        return Optional.empty();
+    }
+
     private Function<String, String> applyTopN(List<JdbcSortItem> sortOrder, long limit)
     {
         return query -> topNFunction()
                 .orElseThrow()
                 .apply(query, sortOrder, limit);
+    }
+
+    private Function<String, String> applySort(List<JdbcSortItem> sortOrder)
+    {
+        return query -> sortFunction()
+                .orElseThrow()
+                .apply(query, sortOrder);
     }
 
     @Override
@@ -1072,6 +1087,27 @@ public abstract class BaseJdbcClient
                         .collect(joining(", "));
 
                 return format("%s ORDER BY %s OFFSET 0 ROWS FETCH NEXT %s ROWS ONLY", query, orderBy, limit);
+            };
+        }
+    }
+
+    @FunctionalInterface
+    public interface SortFunction
+    {
+        String apply(String query, List<JdbcSortItem> sortItems);
+
+        static SortFunction sqlStandard(Function<String, String> quote)
+        {
+            return (query, sortItems) -> {
+                String orderBy = sortItems.stream()
+                        .map(sortItem -> {
+                            String ordering = sortItem.getSortOrder().isAscending() ? "ASC" : "DESC";
+                            String nullsHandling = sortItem.getSortOrder().isNullsFirst() ? "NULLS FIRST" : "NULLS LAST";
+                            return format("%s %s %s", quote.apply(sortItem.getColumn().getColumnName()), ordering, nullsHandling);
+                        })
+                        .collect(joining(", "));
+
+                return format("%s ORDER BY %s", query, orderBy);
             };
         }
     }

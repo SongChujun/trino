@@ -1131,6 +1131,15 @@ public interface ConnectorMetadata
         return Optional.empty();
     }
 
+    default Optional<SortApplicationResult<ConnectorTableHandle>> applySort(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<SortItem> sortItems,
+            Map<String, ColumnHandle> assignments)
+    {
+        return Optional.empty();
+    }
+
     /**
      * Allows the connector to reject the table scan produced by the planner.
      * <p>

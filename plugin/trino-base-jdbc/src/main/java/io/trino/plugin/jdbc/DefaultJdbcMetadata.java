@@ -44,6 +44,7 @@ import io.trino.spi.connector.LimitApplicationResult;
 import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SchemaTablePrefix;
+import io.trino.spi.connector.SortApplicationResult;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableNotFoundException;
@@ -76,6 +77,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isAggregationPushdownEnabled;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isJoinPushdownEnabled;
+import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isSortPushdownEnabled;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isTopNPushdownEnabled;
 import static io.trino.spi.StandardErrorCode.PERMISSION_DENIED;
 import static java.lang.Math.max;
@@ -527,6 +529,53 @@ public class DefaultJdbcMetadata
                 handle.getNextSyntheticColumnId());
 
         return Optional.of(new TopNApplicationResult<>(sortedTableHandle, jdbcClient.isTopNLimitGuaranteed(session), false));
+    }
+
+    @Override
+    public Optional<SortApplicationResult<ConnectorTableHandle>> applySort(
+            ConnectorSession session,
+            ConnectorTableHandle table,
+            List<SortItem> sortItems,
+            Map<String, ColumnHandle> assignments)
+    {
+        if (!isSortPushdownEnabled(session)) {
+            return Optional.empty();
+        }
+
+        verify(!sortItems.isEmpty(), "sortItems are empty");
+        JdbcTableHandle handle = (JdbcTableHandle) table;
+
+        List<JdbcSortItem> resultSortOrder = sortItems.stream()
+                .map(sortItem -> {
+                    verify(assignments.containsKey(sortItem.getName()), "assignments does not contain sortItem: %s", sortItem.getName());
+                    return new JdbcSortItem(((JdbcColumnHandle) assignments.get(sortItem.getName())), sortItem.getSortOrder());
+                })
+                .collect(toImmutableList());
+
+        if (!jdbcClient.supportsSort(session, handle, resultSortOrder)) {
+            // JDBC client implementation prevents TopN pushdown for the given table and sort items
+            // e.g. when order by on a given type does not match Trino semantics
+            return Optional.empty();
+        }
+
+        if (handle.getSortOrder().isPresent()) {
+            if (handle.getSortOrder().equals(Optional.of(resultSortOrder))) {
+                return Optional.empty();
+            }
+
+            handle = flushAttributesAsQuery(session, handle);
+        }
+
+        JdbcTableHandle sortedTableHandle = new JdbcTableHandle(
+                handle.getRelationHandle(),
+                handle.getConstraint(),
+                Optional.of(resultSortOrder),
+                handle.getLimit(),
+                handle.getColumns(),
+                handle.getOtherReferencedTables(),
+                handle.getNextSyntheticColumnId());
+
+        return Optional.of(new SortApplicationResult<>(sortedTableHandle, false));
     }
 
     @Override

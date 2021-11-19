@@ -47,6 +47,7 @@ import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.connector.SampleApplicationResult;
 import io.trino.spi.connector.SampleType;
+import io.trino.spi.connector.SortApplicationResult;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableColumnsMetadata;
@@ -837,6 +838,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public Optional<TopNApplicationResult<TableHandle>> applyTopN(Session session, TableHandle handle, long topNFunctions, List<SortItem> sortItems, Map<String, ColumnHandle> assignments)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<SortApplicationResult<TableHandle>> applySort(Session session, TableHandle handle, List<SortItem> sortItems, Map<String, ColumnHandle> assignments)
     {
         return Optional.empty();
     }

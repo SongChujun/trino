@@ -727,6 +727,20 @@ public class PostgreSqlClient
     }
 
     @Override
+    public boolean supportsSort(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+    {
+        for (JdbcSortItem sortItem : sortOrder) {
+            Type sortItemType = sortItem.getColumn().getColumnType();
+            if (sortItemType instanceof CharType || sortItemType instanceof VarcharType) {
+                if (!isCollatable(sortItem.getColumn())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override
     protected Optional<TopNFunction> topNFunction()
     {
         return Optional.of((query, sortItems, limit) -> {
@@ -742,6 +756,25 @@ public class PostgreSqlClient
                     })
                     .collect(joining(", "));
             return format("%s ORDER BY %s LIMIT %d", query, orderBy, limit);
+        });
+    }
+
+    @Override
+    protected Optional<SortFunction> sortFunction()
+    {
+        return Optional.of((query, sortItems) -> {
+            String orderBy = sortItems.stream()
+                    .map(sortItem -> {
+                        String ordering = sortItem.getSortOrder().isAscending() ? "ASC" : "DESC";
+                        String nullsHandling = sortItem.getSortOrder().isNullsFirst() ? "NULLS FIRST" : "NULLS LAST";
+                        String collation = "";
+                        if (isCollatable(sortItem.getColumn())) {
+                            collation = "COLLATE \"C\"";
+                        }
+                        return format("%s %s %s %s", quoted(sortItem.getColumn().getColumnName()), collation, ordering, nullsHandling);
+                    })
+                    .collect(joining(", "));
+            return format("%s ORDER BY %s", query, orderBy);
         });
     }
 

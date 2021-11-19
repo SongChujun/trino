@@ -43,6 +43,7 @@ import io.trino.spi.connector.MaterializedViewFreshness;
 import io.trino.spi.connector.ProjectionApplicationResult;
 import io.trino.spi.connector.SampleApplicationResult;
 import io.trino.spi.connector.SampleType;
+import io.trino.spi.connector.SortApplicationResult;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableColumnsMetadata;
@@ -457,6 +458,12 @@ public interface Metadata
             Session session,
             TableHandle handle,
             long topNCount,
+            List<SortItem> sortItems,
+            Map<String, ColumnHandle> assignments);
+
+    Optional<SortApplicationResult<TableHandle>> applySort(
+            Session session,
+            TableHandle handle,
             List<SortItem> sortItems,
             Map<String, ColumnHandle> assignments);
 

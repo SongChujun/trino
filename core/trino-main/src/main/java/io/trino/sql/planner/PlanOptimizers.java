@@ -165,6 +165,7 @@ import io.trino.sql.planner.iterative.rule.PushProjectionThroughExchange;
 import io.trino.sql.planner.iterative.rule.PushProjectionThroughUnion;
 import io.trino.sql.planner.iterative.rule.PushRemoteExchangeThroughAssignUniqueId;
 import io.trino.sql.planner.iterative.rule.PushSampleIntoTableScan;
+import io.trino.sql.planner.iterative.rule.PushSortIntoTableScan;
 import io.trino.sql.planner.iterative.rule.PushTableWriteThroughUnion;
 import io.trino.sql.planner.iterative.rule.PushTopNIntoTableScan;
 import io.trino.sql.planner.iterative.rule.PushTopNThroughOuterJoin;
@@ -625,6 +626,7 @@ public class PlanOptimizers
                 .add(new PushAggregationIntoTableScan(metadata))
                 .add(new PushDistinctLimitIntoTableScan(metadata))
                 .add(new PushTopNIntoTableScan(metadata))
+                .add(new PushSortIntoTableScan(metadata))
                 .build();
         IterativeOptimizer pushIntoTableScanOptimizer = new IterativeOptimizer(
                 metadata,

@@ -113,6 +113,11 @@ public interface JdbcClient
 
     boolean supportsTopN(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder);
 
+    default boolean supportsSort(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+    {
+        return false;
+    }
+
     boolean isTopNLimitGuaranteed(ConnectorSession session);
 
     boolean supportsLimit();
