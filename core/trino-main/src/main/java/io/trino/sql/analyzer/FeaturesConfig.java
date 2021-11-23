@@ -73,6 +73,8 @@ public class FeaturesConfig
     private JoinDistributionType joinDistributionType = JoinDistributionType.AUTOMATIC;
     private JoinType joinType = JoinType.SORT_MERGE;
     private ElasticJoinType elasticJoinType = ElasticJoinType.OFFLOAD;
+    private double elasticJoinRightPushdownRatio = 0.5;
+    private double elasticJoinLeftPushdownRatio = 0.5;
 
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
@@ -268,9 +270,11 @@ public class FeaturesConfig
         return joinDistributionType;
     }
 
-    public JoinType getJoinType()
+    @Config("join-distribution-type")
+    public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
     {
-        return joinType;
+        this.joinDistributionType = requireNonNull(joinDistributionType, "joinDistributionType is null");
+        return this;
     }
 
     public ElasticJoinType getElasticJoinType()
@@ -278,11 +282,16 @@ public class FeaturesConfig
         return elasticJoinType;
     }
 
-    @Config("join-distribution-type")
-    public FeaturesConfig setJoinDistributionType(JoinDistributionType joinDistributionType)
+    @Config("elastic-join-type")
+    public FeaturesConfig setElasticJoinType(ElasticJoinType elasticJoinType)
     {
-        this.joinDistributionType = requireNonNull(joinDistributionType, "joinDistributionType is null");
+        this.elasticJoinType = requireNonNull(elasticJoinType, "elasticJoinType is null");
         return this;
+    }
+
+    public JoinType getJoinType()
+    {
+        return joinType;
     }
 
     @Config("join-type")
@@ -292,10 +301,27 @@ public class FeaturesConfig
         return this;
     }
 
-    @Config("elastic-join-type")
-    public FeaturesConfig setElasticJoinType(ElasticJoinType elasticJoinType)
+    public double getElasticJoinLeftPushdownRatio()
     {
-        this.elasticJoinType = requireNonNull(elasticJoinType, "elasticJoinType is null");
+        return elasticJoinLeftPushdownRatio;
+    }
+
+    @Config("elastic-join-left-pushdown-ratio")
+    public FeaturesConfig setElasticJoinLeftPushdownRatio(double elasticJoinLeftPushdownRatio)
+    {
+        this.elasticJoinLeftPushdownRatio = elasticJoinLeftPushdownRatio;
+        return this;
+    }
+
+    public double getElasticJoinRightPushdownRatio()
+    {
+        return elasticJoinRightPushdownRatio;
+    }
+
+    @Config("elastic-join-right-pushdown-ratio")
+    public FeaturesConfig setElasticJoinRightPushdownRatio(double elasticJoinRightPushdownRatio)
+    {
+        this.elasticJoinRightPushdownRatio = elasticJoinRightPushdownRatio;
         return this;
     }
 

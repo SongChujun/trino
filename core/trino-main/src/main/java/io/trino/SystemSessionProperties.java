@@ -127,8 +127,8 @@ public final class SystemSessionProperties
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
     public static final String USE_SIMPLE_JOIN = "use_simple_join";
     public static final String ELASTIC_JOIN_TYPE = "elastic_join_type";
-    public static final String ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO = "elastic_join_right_pushdown_ratio";
-    public static final String ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO = "elastic_join_left_pushdown_ratio";
+    public static final String ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO = "elastic_join_left_pushdown_ratio";
+    public static final String ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO = "elastic_join_right_pushdown_ratio";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
     public static final String LATE_MATERIALIZATION = "late_materialization";
     public static final String ENABLE_DYNAMIC_FILTERING = "enable_dynamic_filtering";
@@ -580,12 +580,12 @@ public final class SystemSessionProperties
                 doubleProperty(
                         ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO,
                         "elastic join left pushdown ratio",
-                        0.5,
+                        featuresConfig.getElasticJoinLeftPushdownRatio(),
                         false),
                 doubleProperty(
                         ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO,
                         "elastic join right pushdown ratio",
-                        0.5,
+                        featuresConfig.getElasticJoinRightPushdownRatio(),
                         false),
                 booleanProperty(
                         PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES,

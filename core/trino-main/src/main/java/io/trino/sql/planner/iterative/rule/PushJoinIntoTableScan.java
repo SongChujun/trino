@@ -158,8 +158,8 @@ public class PushJoinIntoTableScan
             OrderingScheme leftOrderingScheme = new OrderingScheme(leftSymbols, leftOrderingBuilder.build());
             OrderingScheme rightOrderingScheme = new OrderingScheme(rightSymbols, rightOrderingBuilder.build());
 
-            Optional<List<ComparisonExpression>> leftFilterPredicates = getFilterPredicates(metadata, context, leftDownTableScanNode, leftSymbols.get(0), getElasticJoinLeftPushdownRatio(context.getSession()));
-            Optional<List<ComparisonExpression>> rightFilterPredicates = getFilterPredicates(metadata, context, rightDownTableScanNode, rightSymbols.get(0), getElasticJoinLeftPushdownRatio(context.getSession()));
+            Optional<List<ComparisonExpression>> leftFilterPredicates = getFilterPredicates(metadata, context, leftDownTableScanNode, leftSymbols.get(0), 1 - getElasticJoinLeftPushdownRatio(context.getSession()));
+            Optional<List<ComparisonExpression>> rightFilterPredicates = getFilterPredicates(metadata, context, rightDownTableScanNode, rightSymbols.get(0), 1 - getElasticJoinLeftPushdownRatio(context.getSession()));
 
             if (leftFilterPredicates.isEmpty() || rightFilterPredicates.isEmpty()) {
                 return Result.empty();
@@ -442,8 +442,13 @@ public class PushJoinIntoTableScan
             int intMaxColumnVal = (Integer) maxColumnVal;
             int leftDelimiterVal = intMinColumnVal + (int) (ratio * (intMaxColumnVal - intMinColumnVal));
             LongLiteral delimiterLiteral = new LongLiteral(String.valueOf(leftDelimiterVal));
-            res.add(new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiterLiteral, delimiterSymbol.toSymbolReference()));
-            res.add(new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiterLiteral, delimiterSymbol.toSymbolReference()));
+            if ( ratio >= 1.0) {
+                res.add(new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL, delimiterLiteral, delimiterSymbol.toSymbolReference()));
+                res.add(new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN, delimiterLiteral, delimiterSymbol.toSymbolReference()));
+            } else {
+                res.add(new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiterLiteral, delimiterSymbol.toSymbolReference()));
+                res.add(new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiterLiteral, delimiterSymbol.toSymbolReference()));
+            }
             return Optional.of(res.build());
         }
         else {
