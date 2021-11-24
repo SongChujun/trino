@@ -442,10 +442,11 @@ public class PushJoinIntoTableScan
             int intMaxColumnVal = (Integer) maxColumnVal;
             int leftDelimiterVal = intMinColumnVal + (int) (ratio * (intMaxColumnVal - intMinColumnVal));
             LongLiteral delimiterLiteral = new LongLiteral(String.valueOf(leftDelimiterVal));
-            if ( ratio >= 1.0) {
+            if (ratio >= 1.0) {
                 res.add(new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL, delimiterLiteral, delimiterSymbol.toSymbolReference()));
                 res.add(new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN, delimiterLiteral, delimiterSymbol.toSymbolReference()));
-            } else {
+            }
+            else {
                 res.add(new ComparisonExpression(ComparisonExpression.Operator.GREATER_THAN, delimiterLiteral, delimiterSymbol.toSymbolReference()));
                 res.add(new ComparisonExpression(ComparisonExpression.Operator.LESS_THAN_OR_EQUAL, delimiterLiteral, delimiterSymbol.toSymbolReference()));
             }
