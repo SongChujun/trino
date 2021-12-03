@@ -545,8 +545,7 @@ public class MySqlClient
             return false;
         }
 
-        if (!(joinCondition.getLeftColumn() instanceof JdbcColumnHandle) || !(joinCondition.getRightColumn() instanceof JdbcColumnHandle))
-        {
+        if (!(joinCondition.getLeftColumn() instanceof JdbcColumnHandle) || !(joinCondition.getRightColumn() instanceof JdbcColumnHandle)) {
             return false;
         }
 

@@ -113,8 +113,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
@@ -408,8 +406,8 @@ public class PostgreSqlClient
                     keySeqs.add(keySeq);
                 }
                 String[] res = new String[columnNames.size()];
-                for (int i = 0; i< columnNames.size(); i++) {
-                    res[keySeqs.get(i)-1] = columnNames.get(i);
+                for (int i = 0; i < columnNames.size(); i++) {
+                    res[keySeqs.get(i) - 1] = columnNames.get(i);
                 }
                 return Arrays.asList(res);
             }
@@ -813,16 +811,14 @@ public class PostgreSqlClient
     protected boolean isSupportedJoinCondition(JdbcJoinCondition joinCondition)
     {
         boolean isVarchar = false;
-        if (joinCondition.getLeftColumn() instanceof JdbcColumnHandle)
-        {
+        if (joinCondition.getLeftColumn() instanceof JdbcColumnHandle) {
             JdbcColumnHandle leftHandle = (JdbcColumnHandle) joinCondition.getLeftColumn();
-            isVarchar = (leftHandle.getColumnType() instanceof  CharType || leftHandle.getColumnType() instanceof  VarcharType);
+            isVarchar = (leftHandle.getColumnType() instanceof CharType || leftHandle.getColumnType() instanceof VarcharType);
         }
 
-        if (joinCondition.getRightColumn() instanceof JdbcColumnHandle)
-        {
+        if (joinCondition.getRightColumn() instanceof JdbcColumnHandle) {
             JdbcColumnHandle rightHandle = (JdbcColumnHandle) joinCondition.getRightColumn();
-            isVarchar = (rightHandle.getColumnType() instanceof  CharType || rightHandle.getColumnType() instanceof  VarcharType) | isVarchar;
+            isVarchar = (rightHandle.getColumnType() instanceof CharType || rightHandle.getColumnType() instanceof VarcharType) | isVarchar;
         }
         if (isVarchar) {
             // PostgreSQL is case sensitive by default, but orders varchars differently
@@ -972,7 +968,6 @@ public class PostgreSqlClient
                         res.add(resultSet.getInt("minV"));
                         res.add(resultSet.getInt("maxV"));
                     }
-
                 }
                 return res.build();
             }
