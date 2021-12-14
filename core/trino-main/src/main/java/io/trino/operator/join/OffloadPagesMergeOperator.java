@@ -52,6 +52,7 @@ public class OffloadPagesMergeOperator
         List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators;
         private final SortMergeJoinBridge bridge;
         private boolean closed;
+        private final SortOperator.SortOperatorFactory.Mode mode;
 
         public OffloadPagesMergeOperatorFactory(
                 int operatorId,
@@ -63,7 +64,8 @@ public class OffloadPagesMergeOperator
                 List<Integer> leftOutputChannels,
                 List<Integer> rightOutputChannels,
                 List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators,
-                SortMergeJoinBridge bridge)
+                SortMergeJoinBridge bridge,
+                SortOperator.SortOperatorFactory.Mode mode)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -75,6 +77,7 @@ public class OffloadPagesMergeOperator
             this.rightOutputChannels = requireNonNull(rightOutputChannels);
             this.joinEqualOperators = requireNonNull(joinEqualOperators);
             this.bridge = requireNonNull(bridge);
+            this.mode = requireNonNull(mode);
         }
 
         @Override
@@ -104,7 +107,7 @@ public class OffloadPagesMergeOperator
             SortMergePageBuilder pageBuilder = new SortMergePageBuilder(leftUpPagesIndex, rightUpPagesIndex, leftOutputTypes, rightOutputTypes, leftOutputChannels, rightOutputChannels);
             return new OffloadPagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftUpPagesIndex, leftDownPagesIndex, rightUpPagesIndex, rightDownPagesIndex,
                     leftPagesIndexComparator, rightPagesIndexComparator, bridge.getNextFinishedFuture(), joinEqualOperators,
-                    pageBuilder);
+                    pageBuilder, mode);
         }
 
         @Override
@@ -125,6 +128,7 @@ public class OffloadPagesMergeOperator
     private final PagesIndex rightUpSortedPagesIndex;
     private final PagesIndex rightDownSortedPagesIndex;
     private final PagesMergeOperator pagesMergeOperator;
+    private final SortOperator.SortOperatorFactory.Mode mode;
 
     public OffloadPagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
@@ -137,7 +141,8 @@ public class OffloadPagesMergeOperator
             PagesIndexComparator rightPagesIndexComparator,
             SettableFuture<Boolean> sortFinishedFuture,
             List<BlockTypeOperators.BlockPositionComparison> joinEqualOperators,
-            SortMergePageBuilder pageBuilder)
+            SortMergePageBuilder pageBuilder,
+            SortOperator.SortOperatorFactory.Mode mode)
     {
         this.leftUpSortedPagesIndex = leftUpSortedPagesIndex;
         this.leftDownSortedPagesIndex = leftDownSortedPagesIndex;
@@ -145,6 +150,7 @@ public class OffloadPagesMergeOperator
         this.rightDownSortedPagesIndex = rightDownSortedPagesIndex;
         pagesMergeOperator = new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftUpSortedPagesIndex, rightUpSortedPagesIndex,
                 leftPagesIndexComparator, rightPagesIndexComparator, sortFinishedFuture, joinEqualOperators, pageBuilder);
+        this.mode = mode;
     }
 
     @Override
@@ -187,8 +193,15 @@ public class OffloadPagesMergeOperator
     public Page getOutput()
     {
         if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
-            leftUpSortedPagesIndex.addPagesIndex(leftDownSortedPagesIndex);
-            rightUpSortedPagesIndex.addPagesIndex(rightDownSortedPagesIndex);
+            if (mode == SortOperator.SortOperatorFactory.Mode.STATIC) {
+                leftUpSortedPagesIndex.addPagesIndex(leftDownSortedPagesIndex);
+                rightUpSortedPagesIndex.addPagesIndex(rightDownSortedPagesIndex);
+            }
+            else {
+                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
+                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
+            }
+
             leftDownSortedPagesIndex.clear();
             rightDownSortedPagesIndex.clear();
         }

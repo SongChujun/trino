@@ -64,12 +64,18 @@ public class SortOperator
         private final SortMergeJoinBridge bridge;
         private final Placement placement;
         private final int finishedCnt;
+        private final Mode mode;
 
         public enum Placement {
             LEFT_UP,
             LEFT_DOWN,
             RIGHT_UP,
             RIGHT_DOWN
+        }
+
+        public enum Mode {
+            STATIC,
+            DYNAMIC
         }
 
         private boolean closed;
@@ -85,7 +91,8 @@ public class SortOperator
                 OrderingCompiler orderingCompiler,
                 SortMergeJoinBridge bridge,
                 Placement placement,
-                int finishedCnt)
+                int finishedCnt,
+                Mode mode)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -99,6 +106,7 @@ public class SortOperator
             this.bridge = bridge;
             this.placement = placement;
             this.finishedCnt = finishedCnt;
+            this.mode = mode;
             checkArgument(!spillEnabled || spillerFactory.isPresent(), "Spiller Factory is not present when spill is enabled");
         }
 
@@ -109,22 +117,32 @@ public class SortOperator
             Integer localPartitioningIndex = driverContext.getLocalPartitioningIndex();
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, SortOperator.class.getSimpleName());
             PagesIndex pagesIndex;
-            boolean inputSorted;
+            ExecutionType executionType;
             if (placement == Placement.LEFT_UP) {
                 pagesIndex = bridge.getLeftUpPagesIndex(localPartitioningIndex);
-                inputSorted = false;
+                executionType = ExecutionType.ADD_SORT;
             }
             else if (placement == Placement.LEFT_DOWN) {
                 pagesIndex = bridge.getLeftDownPagesIndex(localPartitioningIndex);
-                inputSorted = true;
+                if (mode == Mode.STATIC) {
+                    executionType = ExecutionType.ADD_NOSORT;
+                }
+                else {
+                    executionType = ExecutionType.MERGE_NOSORT;
+                }
             }
             else if (placement == Placement.RIGHT_UP) {
                 pagesIndex = bridge.getRightUpPagesIndex(localPartitioningIndex);
-                inputSorted = false;
+                executionType = ExecutionType.ADD_SORT;
             }
             else if (placement == Placement.RIGHT_DOWN) {
                 pagesIndex = bridge.getRightDownPagesIndex(localPartitioningIndex);
-                inputSorted = true;
+                if (mode == Mode.STATIC) {
+                    executionType = ExecutionType.ADD_NOSORT;
+                }
+                else {
+                    executionType = ExecutionType.MERGE_NOSORT;
+                }
             }
             else {
                 throw new UnsupportedOperationException("unsupported placement");
@@ -141,7 +159,7 @@ public class SortOperator
                     orderingCompiler,
                     bridge.getSortFinishedCnt(localPartitioningIndex),
                     finishedCnt,
-                    inputSorted,
+                    executionType,
                     bridge.getSortFinishedFuture(localPartitioningIndex));
         }
 
@@ -165,6 +183,13 @@ public class SortOperator
         FINISHED
     }
 
+    public enum ExecutionType
+    {
+        ADD_SORT,
+        ADD_NOSORT,
+        MERGE_NOSORT
+    }
+
     private final OperatorContext operatorContext;
     private final List<Integer> sortChannels;
     private final List<SortOrder> sortOrder;
@@ -186,7 +211,7 @@ public class SortOperator
     private Iterator<Optional<Page>> sortedPages;
     private AtomicInteger sortFinishedCnt;
     private final int finishedCnt;
-    private final boolean inputSorted;
+    private final ExecutionType executionType;
 
     private State state = State.NEEDS_INPUT;
 
@@ -201,7 +226,7 @@ public class SortOperator
             OrderingCompiler orderingCompiler,
             AtomicInteger sortFinishedCnt,
             int finishedCnt,
-            boolean inputSorted,
+            ExecutionType executionType,
             SettableFuture<Boolean> sortFinishedFuture)
     {
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
@@ -217,7 +242,7 @@ public class SortOperator
         this.orderingCompiler = requireNonNull(orderingCompiler, "orderingCompiler is null");
         this.sortFinishedCnt = sortFinishedCnt;
         this.finishedCnt = finishedCnt;
-        this.inputSorted = inputSorted;
+        this.executionType = executionType;
         this.sortFinishedFuture = sortFinishedFuture;
         checkArgument(!spillEnabled || spillerFactory.isPresent(), "Spiller Factory is not present when spill is enabled");
     }
@@ -253,7 +278,7 @@ public class SortOperator
                     finishMemoryRevoke.run();
                 }
             }
-            if (!inputSorted) {
+            if (executionType == ExecutionType.ADD_SORT) {
                 pageIndex.sort(sortChannels, sortOrder);
             }
             Iterator<Page> sortedPagesIndex = pageIndex.getSortedPages();
@@ -294,7 +319,15 @@ public class SortOperator
         // TODO: remove when retained memory accounting for pages does not
         // count shared data structures multiple times
 //        page.compact();
-        pageIndex.addPage(page);
+        if ((executionType == ExecutionType.ADD_SORT) || (executionType == ExecutionType.ADD_NOSORT)) {
+            pageIndex.addPage(page);
+        }
+        else if (executionType == ExecutionType.MERGE_NOSORT) {
+            pageIndex.mergePage(page);
+        }
+        else {
+            throw new UnsupportedOperationException();
+        }
         updateMemoryUsage();
     }
 

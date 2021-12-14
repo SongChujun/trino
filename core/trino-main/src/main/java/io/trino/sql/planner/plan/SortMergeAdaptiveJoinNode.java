@@ -41,6 +41,7 @@ public class SortMergeAdaptiveJoinNode
         extends PlanNode
 {
     private final JoinNode.Type type;
+    private final AdaptiveExecutionType adaptiveExecutionType;
     private final PlanNode leftUp;
     private final PlanNode leftDown;
     private final PlanNode rightUp;
@@ -63,6 +64,7 @@ public class SortMergeAdaptiveJoinNode
     public SortMergeAdaptiveJoinNode(
             @JsonProperty("id") PlanNodeId id,
             @JsonProperty("type") JoinNode.Type type,
+            @JsonProperty("adaptiveExecutionType") AdaptiveExecutionType adaptiveExecutionType,
             @JsonProperty("leftUp") PlanNode leftUp,
             @JsonProperty("leftDown") PlanNode leftDown,
             @JsonProperty("rightUp") PlanNode rightUp,
@@ -81,6 +83,7 @@ public class SortMergeAdaptiveJoinNode
     {
         super(id);
         requireNonNull(type, "type is null");
+        requireNonNull(adaptiveExecutionType, "adaptiveExecutionType is null");
         requireNonNull(leftUp, "leftUp is null");
         requireNonNull(leftDown, "leftDown is null");
         requireNonNull(rightUp, "rightUp is null");
@@ -95,6 +98,7 @@ public class SortMergeAdaptiveJoinNode
         requireNonNull(spillable, "spillable is null");
 
         this.type = type;
+        this.adaptiveExecutionType = adaptiveExecutionType;
         this.leftUp = leftUp;
         this.leftDown = leftDown;
         this.rightUp = rightUp;
@@ -144,6 +148,12 @@ public class SortMergeAdaptiveJoinNode
     public JoinNode.Type getType()
     {
         return type;
+    }
+
+    @JsonProperty("adaptiveExecutionType")
+    public AdaptiveExecutionType getAdaptiveExecutionType()
+    {
+        return adaptiveExecutionType;
     }
 
     @JsonProperty("leftUp")
@@ -261,12 +271,17 @@ public class SortMergeAdaptiveJoinNode
     public PlanNode replaceChildren(List<PlanNode> newChildren)
     {
         checkArgument(newChildren.size() == 4, "expected newChildren to contain 2 nodes");
-        return new SortMergeAdaptiveJoinNode(getId(), type, newChildren.get(0), newChildren.get(1), newChildren.get(2), newChildren.get(3), criteria, leftOutputSymbols, rightOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
+        return new SortMergeAdaptiveJoinNode(getId(), type, adaptiveExecutionType, newChildren.get(0), newChildren.get(1), newChildren.get(2), newChildren.get(3), criteria, leftOutputSymbols, rightOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, distributionType, spillable, dynamicFilters, reorderJoinStatsAndCost);
+    }
+
+    public enum AdaptiveExecutionType {
+        STATIC,
+        DYNAMIC
     }
 
     public SortMergeAdaptiveJoinNode withDistributionType(JoinNode.DistributionType distributionType)
     {
-        return new SortMergeAdaptiveJoinNode(getId(), type, leftUp, leftDown, rightUp, rightDown, criteria, leftOutputSymbols, rightOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, Optional.of(distributionType), spillable, dynamicFilters, reorderJoinStatsAndCost);
+        return new SortMergeAdaptiveJoinNode(getId(), type, adaptiveExecutionType, leftUp, leftDown, rightUp, rightDown, criteria, leftOutputSymbols, rightOutputSymbols, maySkipOutputDuplicates, filter, leftHashSymbol, rightHashSymbol, Optional.of(distributionType), spillable, dynamicFilters, reorderJoinStatsAndCost);
     }
 
     public boolean isCrossJoin()

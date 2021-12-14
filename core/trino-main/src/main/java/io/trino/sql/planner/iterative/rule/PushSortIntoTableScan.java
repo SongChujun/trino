@@ -21,6 +21,7 @@ import io.trino.metadata.Metadata;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.predicate.TupleDomain;
+import io.trino.split.SplitManager;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.SortNode;
@@ -47,10 +48,12 @@ public class PushSortIntoTableScan
             .with(source().matching(tableScan().capturedAs(TABLE_SCAN)));
 
     private final Metadata metadata;
+    private final SplitManager splitManager;
 
-    public PushSortIntoTableScan(Metadata metadata)
+    public PushSortIntoTableScan(Metadata metadata, SplitManager splitManager)
     {
         this.metadata = metadata;
+        this.splitManager = splitManager;
     }
 
     @Override
@@ -78,6 +81,7 @@ public class PushSortIntoTableScan
 
         return metadata.applySort(context.getSession(), tableScan.getTable(), sortItems, assignments)
                 .map(result -> {
+                    splitManager.replaceTableHandle(tableScan.getTable(), result.getHandle());
                     PlanNode node = new TableScanNode(
                             context.getIdAllocator().getNextId(),
                             result.getHandle(),

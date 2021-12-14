@@ -28,6 +28,8 @@ import io.trino.spi.connector.DynamicFilter;
 
 import javax.inject.Inject;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -40,6 +42,8 @@ public class SplitManager
 {
     private final ConcurrentMap<CatalogName, ConnectorSplitManager> splitManagers = new ConcurrentHashMap<>();
     private final int minScheduleSplitBatchSize;
+    private Map<TableHandle, TableHandle> colocateTableHandle;
+    private Map<TableHandle, ConnectorSplitSource> colocateSplitSource;
 
     // NOTE: This only used for filling in the table layout if none is present by the time we
     // get splits. DO NOT USE IT FOR ANY OTHER PURPOSE, as it will be removed once table layouts
@@ -51,6 +55,8 @@ public class SplitManager
     {
         this.minScheduleSplitBatchSize = config.getMinScheduleSplitBatchSize();
         this.metadata = metadata;
+        this.colocateTableHandle = new HashMap<>();
+        this.colocateSplitSource = new HashMap<>();
     }
 
     public void addConnectorSplitManager(CatalogName catalogName, ConnectorSplitManager connectorSplitManager)
@@ -83,12 +89,24 @@ public class SplitManager
             source = splitManager.getSplits(table.getTransaction(), connectorSession, layout, splitSchedulingStrategy);
         }
         else {
-            source = splitManager.getSplits(
-                    table.getTransaction(),
-                    connectorSession,
-                    table.getConnectorHandle(),
-                    splitSchedulingStrategy,
-                    dynamicFilter);
+            if (colocateTableHandle.containsKey(table) && colocateSplitSource.containsKey(colocateTableHandle.get(table))) {
+                TableHandle otherTableHandle = colocateTableHandle.get(table);
+                source = colocateSplitSource.get(otherTableHandle);
+                colocateTableHandle.remove(table);
+                colocateTableHandle.remove(otherTableHandle);
+                colocateSplitSource.remove(otherTableHandle);
+            }
+            else {
+                source = splitManager.getSplits(
+                        table.getTransaction(),
+                        connectorSession,
+                        table.getConnectorHandle(),
+                        splitSchedulingStrategy,
+                        dynamicFilter);
+                if (colocateTableHandle.containsKey(table)) {
+                    colocateSplitSource.put(table, source);
+                }
+            }
         }
 
         SplitSource splitSource = new ConnectorAwareSplitSource(catalogName, source);
@@ -103,5 +121,22 @@ public class SplitManager
         ConnectorSplitManager result = splitManagers.get(catalogName);
         checkArgument(result != null, "No split manager for connector '%s'", catalogName);
         return result;
+    }
+
+    public void registerColocateTableHandle(TableHandle th1, TableHandle th2)
+    {
+        this.colocateTableHandle.put(th1, th2);
+        this.colocateTableHandle.put(th2, th1);
+    }
+
+    public void replaceTableHandle(TableHandle oldTableHandle, TableHandle newTableHandle)
+    {
+        if (this.colocateTableHandle.containsKey(oldTableHandle)) {
+            TableHandle otherTableHandle = colocateTableHandle.get(oldTableHandle);
+            colocateTableHandle.remove(oldTableHandle);
+            colocateTableHandle.remove(otherTableHandle);
+            colocateTableHandle.put(newTableHandle, otherTableHandle);
+            colocateTableHandle.put(otherTableHandle, newTableHandle);
+        }
     }
 }

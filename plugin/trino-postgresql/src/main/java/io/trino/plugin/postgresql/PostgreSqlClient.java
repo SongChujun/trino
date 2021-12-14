@@ -29,6 +29,7 @@ import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
 import io.trino.plugin.jdbc.JdbcJoinCondition;
 import io.trino.plugin.jdbc.JdbcSortItem;
+import io.trino.plugin.jdbc.JdbcSplit;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.LongReadFunction;
@@ -67,7 +68,9 @@ import io.trino.spi.block.SingleMapBlock;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.FixedSplitSource;
 import io.trino.spi.connector.JoinCondition;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
@@ -414,6 +417,43 @@ public class PostgreSqlClient
         }
         catch (SQLException e) {
             throw new TrinoException(JDBC_ERROR, e);
+        }
+    }
+
+    @Override
+    public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        if (!tableHandle.isNamedRelation()) {
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+        }
+        String sql = format("select * from pg_partition_tree('%s')",
+                quoted(tableHandle.getRequiredNamedRelation().getRemoteTableName()));
+        ImmutableList.Builder<JdbcSplit> res = new ImmutableList.Builder<>();
+        boolean partitioned = false;
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        String name = resultSet.getString("relid");
+                        String isLeaf = resultSet.getString("isLeaf");
+                        if (name.equals(tableHandle.getRequiredNamedRelation().getRemoteTableName().getTableName()) && isLeaf.equals("f")) {
+                            partitioned = true;
+                        }
+                        else {
+                            res.add(new JdbcSplit(Optional.of(name)));
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+        if (!partitioned) {
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+        }
+        else {
+            return new FixedSplitSource((res.build()));
         }
     }
 

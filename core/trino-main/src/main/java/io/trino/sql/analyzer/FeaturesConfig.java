@@ -181,7 +181,8 @@ public class FeaturesConfig
         NONE,
         OUTER,
         OFFLOAD,
-        UNION
+        UNION,
+        DYNAMIC
     }
 
     public enum DataIntegrityVerification

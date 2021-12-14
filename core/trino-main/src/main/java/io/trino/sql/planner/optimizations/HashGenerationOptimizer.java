@@ -539,6 +539,7 @@ public class HashGenerationOptimizer
                     new SortMergeAdaptiveJoinNode(
                             node.getId(),
                             node.getType(),
+                            node.getAdaptiveExecutionType(),
                             leftUp.getNode(),
                             leftDown.getNode(),
                             rightUp.getNode(),

@@ -39,6 +39,7 @@ import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.IntegerType;
+import io.trino.split.SplitManager;
 import io.trino.sql.ExpressionUtils;
 import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.planner.OrderingScheme;
@@ -99,10 +100,17 @@ public class PushJoinIntoTableScan
                     .with(right().matching(tableScan().capturedAs(RIGHT_TABLE_SCAN)));
 
     private final Metadata metadata;
+    private final SplitManager splitManager;
 
     public PushJoinIntoTableScan(Metadata metadata)
     {
+        this(metadata, null);
+    }
+
+    public PushJoinIntoTableScan(Metadata metadata, SplitManager splitManager)
+    {
         this.metadata = requireNonNull(metadata, "metadata is null");
+        this.splitManager = requireNonNull(splitManager, "splitManager is null");
     }
 
     @Override
@@ -137,7 +145,7 @@ public class PushJoinIntoTableScan
 
         FeaturesConfig.JoinType joinImplementation = SystemSessionProperties.getJoinType(context.getSession());
         FeaturesConfig.ElasticJoinType elasticJoinType = getElasticJoinType(context.getSession());
-        if (joinImplementation == FeaturesConfig.JoinType.HASH && elasticJoinType == FeaturesConfig.ElasticJoinType.OFFLOAD) {
+        if (joinImplementation == FeaturesConfig.JoinType.HASH && (elasticJoinType == FeaturesConfig.ElasticJoinType.OFFLOAD || (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC))) {
             elasticJoinType = FeaturesConfig.ElasticJoinType.OUTER;
         }
 
@@ -175,9 +183,50 @@ public class PushJoinIntoTableScan
             PlanNode offLoadSortMergeNode = new SortMergeAdaptiveJoinNode(
                     context.getIdAllocator().getNextId(),
                     joinNode.getType(),
+                    SortMergeAdaptiveJoinNode.AdaptiveExecutionType.STATIC,
                     leftUp,
                     leftDown,
                     rightUp,
+                    rightDown,
+                    joinNode.getCriteria(),
+                    joinNode.getLeftOutputSymbols(),
+                    joinNode.getRightOutputSymbols(),
+                    joinNode.isMaySkipOutputDuplicates(),
+                    Optional.empty(),
+                    joinNode.getLeftHashSymbol(),
+                    joinNode.getRightHashSymbol(),
+                    joinNode.getDistributionType(),
+                    joinNode.isSpillable(),
+                    joinNode.getDynamicFilters(),
+                    joinNode.getReorderJoinStatsAndCost());
+            return Result.ofPlanNode(offLoadSortMergeNode);
+        }
+
+        if (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC) {
+            List<JoinNode.EquiJoinClause> clauses = joinNode.getCriteria();
+
+            List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
+            List<Symbol> rightSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
+
+            ImmutableMap.Builder<Symbol, SortOrder> leftOrderingBuilder = ImmutableMap.builder();
+            ImmutableMap.Builder<Symbol, SortOrder> rightOrderingBuilder = ImmutableMap.builder();
+            leftSymbols.forEach(symbol -> leftOrderingBuilder.put(symbol, SortOrder.ASC_NULLS_LAST));
+            rightSymbols.forEach(symbol -> rightOrderingBuilder.put(symbol, SortOrder.ASC_NULLS_LAST));
+
+            OrderingScheme leftOrderingScheme = new OrderingScheme(leftSymbols, leftOrderingBuilder.build());
+            OrderingScheme rightOrderingScheme = new OrderingScheme(rightSymbols, rightOrderingBuilder.build());
+
+            PlanNode leftDown = new SortNode(context.getIdAllocator().getNextId(), left, leftOrderingScheme, false);
+            PlanNode rightDown = new SortNode(context.getIdAllocator().getNextId(), right, rightOrderingScheme, false);
+            splitManager.registerColocateTableHandle(left.getTable(), left.getTable());
+            splitManager.registerColocateTableHandle(right.getTable(), right.getTable());
+            PlanNode offLoadSortMergeNode = new SortMergeAdaptiveJoinNode(
+                    context.getIdAllocator().getNextId(),
+                    joinNode.getType(),
+                    SortMergeAdaptiveJoinNode.AdaptiveExecutionType.DYNAMIC,
+                    left,
+                    leftDown,
+                    right,
                     rightDown,
                     joinNode.getCriteria(),
                     joinNode.getLeftOutputSymbols(),

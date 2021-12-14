@@ -2408,7 +2408,12 @@ public class LocalExecutionPlanner
                 case LEFT:
                 case RIGHT:
                 case FULL:
-                    return createSortMergeOffloadAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.STATIC) {
+                        return createSortMergeOffloadAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    }
+                    else if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.DYNAMIC) {
+                        return createSortMergeDynamicAdaptiveJoin(node, leftSymbols, rightSymbols, context);
+                    }
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
@@ -2847,7 +2852,7 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions);
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
@@ -2855,11 +2860,13 @@ public class LocalExecutionPlanner
                 sortOrder.add(ASC_NULLS_LAST);
             }
 
+            SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;
+
             OperatorFactory leftSortOperator = new SortOperator.SortOperatorFactory(leftContext.getNextOperatorId(), node.getId(), leftTypes,
-                     leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, 2);
+                     leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, 2, mode);
 
             OperatorFactory rightSortOperator = new SortOperator.SortOperatorFactory(rightContext.getNextOperatorId(), node.getId(), rightTypes,
-                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, 2);
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, 2, mode);
 
             OperatorFactory mergeOperator = new PagesMergeOperator.PagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
                     leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge);
@@ -2931,7 +2938,7 @@ public class LocalExecutionPlanner
 
             int expectedPositions = 10_000;
 
-            SortMergeJoinBridge joinBridge = new SortMergeJoinBridge(partitionCount, leftTypes, rightTypes, pagesIndexFactory, expectedPositions);
+            SortMergeJoinBridge joinBridge = new SortMergeJoinBridge(partitionCount, leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
@@ -2940,7 +2947,7 @@ public class LocalExecutionPlanner
             }
 
             OperatorFactory rightSortOperator = new SortOperator.SortOperatorFactory(
-                    rightContext.getNextOperatorId(), node.getId(), rightTypes, rightJoinChannels, sortOrder.build(), false, Optional.empty(), orderingCompiler, joinBridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, 2);
+                    rightContext.getNextOperatorId(), node.getId(), rightTypes, rightJoinChannels, sortOrder.build(), false, Optional.empty(), orderingCompiler, joinBridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, 2, SortOperator.SortOperatorFactory.Mode.STATIC);
 
             OperatorFactory outerTableOperator = new SortMergeOuterJoinResultProcessingOperator.SortMergeOuterJoinResultProcessingOperatorFactory(
                     outerContext.getNextOperatorId(), node.getId(), joinBridge, true, ImmutableList.copyOf(getChannelsForSymbols(node.getProbePrimaryKeySymbols(), outerSource.getLayout())),
@@ -3006,7 +3013,7 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions);
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
@@ -3015,20 +3022,21 @@ public class LocalExecutionPlanner
             }
 
             int finishedCnt = 4;
+            SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;
 
             OperatorFactory leftUpSortOperator = new SortOperator.SortOperatorFactory(leftUpContext.getNextOperatorId(), node.getId(), leftTypes,
-                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, finishedCnt);
+                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, finishedCnt, mode);
 
             OperatorFactory leftDownSortOperator = new SortOperator.SortOperatorFactory(leftDownContext.getNextOperatorId(), node.getId(), leftTypes,
-                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_DOWN, finishedCnt);
+                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_DOWN, finishedCnt, mode);
 
             OperatorFactory rightUpSortOperator = new SortOperator.SortOperatorFactory(rightUpContext.getNextOperatorId(), node.getId(), rightTypes,
-                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, finishedCnt);
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, finishedCnt, mode);
             OperatorFactory rightDownSortOperator = new SortOperator.SortOperatorFactory(rightDownContext.getNextOperatorId(), node.getId(), rightTypes,
-                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_DOWN, finishedCnt);
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_DOWN, finishedCnt, mode);
 
             OperatorFactory mergeOperator = new OffloadPagesMergeOperator.OffloadPagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
-                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge);
+                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge, mode);
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             List<Symbol> outputSymbols = node.getOutputSymbols();
@@ -3060,6 +3068,96 @@ public class LocalExecutionPlanner
                     rightDownContext.isInputDriver(),
                     false,
                     new PhysicalOperation(rightDownSortOperator, outputMappings.build(), rightDownContext,
+                            rightDownSource),
+                    rightDownContext.getDriverInstanceCount());
+
+            return new PhysicalOperation(mergeOperator, outputMappings.build(), context, UNGROUPED_EXECUTION);
+        }
+
+        private PhysicalOperation createSortMergeDynamicAdaptiveJoin(
+                SortMergeAdaptiveJoinNode node,
+                List<Symbol> leftSymbols,
+                List<Symbol> rightSymbols,
+                LocalExecutionPlanContext context)
+        {
+            context.setDriverInstanceCount(getTaskConcurrency(session));
+            LocalExecutionPlanContext leftUpContext = context.createSubContext();
+            LocalExecutionPlanContext leftDownContext = context.createSubContext();
+            LocalExecutionPlanContext rightUpContext = context.createSubContext();
+            LocalExecutionPlanContext rightDownContext = context.createSubContext();
+
+            PhysicalOperation leftUpSource = node.getLeftUp().accept(this, leftUpContext);
+            PhysicalOperation leftDownSource = node.getLeftDown().accept(this, leftDownContext);
+            PhysicalOperation rightUpSource = node.getRightUp().accept(this, rightUpContext);
+            PhysicalOperation rightDownSource = node.getRightDown().accept(this, rightDownContext);
+
+            List<Type> leftTypes = leftUpSource.getTypes();
+            List<Type> rightTypes = rightUpSource.getTypes();
+
+            List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), leftUpSource.getLayout()));
+            List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), rightUpSource.getLayout()));
+            List<Integer> leftChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, leftUpSource.getLayout()));
+            List<Integer> rightChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, rightUpSource.getLayout()));
+
+            int expectedPositions = 10_000;
+
+            boolean eagerCompact = false; //hacky;
+
+            ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
+
+            for (int i = 0; i < leftChannels.size(); i++) {
+                sortOrder.add(ASC_NULLS_LAST);
+            }
+
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build());
+
+            int finishedCnt = 4;
+            SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.DYNAMIC;
+
+            OperatorFactory leftUpSortOperator = new SortOperator.SortOperatorFactory(leftUpContext.getNextOperatorId(), node.getId(), leftTypes,
+                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, finishedCnt, mode);
+
+            OperatorFactory leftDownMergeOperator = new SortOperator.SortOperatorFactory(leftDownContext.getNextOperatorId(), node.getId(), leftTypes,
+                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_DOWN, finishedCnt, mode);
+
+            OperatorFactory rightUpSortOperator = new SortOperator.SortOperatorFactory(rightUpContext.getNextOperatorId(), node.getId(), rightTypes,
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, finishedCnt, mode);
+            OperatorFactory rightDownMergeOperator = new SortOperator.SortOperatorFactory(rightDownContext.getNextOperatorId(), node.getId(), rightTypes,
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_DOWN, finishedCnt, mode);
+
+            OperatorFactory mergeOperator = new OffloadPagesMergeOperator.OffloadPagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
+                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge, mode);
+
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+            context.addDriverFactory(
+                    leftUpContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(leftUpSortOperator, outputMappings.build(), leftUpContext,
+                            leftUpSource),
+                    leftUpContext.getDriverInstanceCount());
+
+            context.addDriverFactory(
+                    leftDownContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(leftDownMergeOperator, outputMappings.build(), leftDownContext,
+                            leftDownSource),
+                    leftDownContext.getDriverInstanceCount());
+            context.addDriverFactory(
+                    rightUpContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightUpSortOperator, outputMappings.build(), rightUpContext,
+                            rightUpSource),
+                    rightUpContext.getDriverInstanceCount());
+
+            context.addDriverFactory(
+                    rightDownContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightDownMergeOperator, outputMappings.build(), rightDownContext,
                             rightDownSource),
                     rightDownContext.getDriverInstanceCount());
 

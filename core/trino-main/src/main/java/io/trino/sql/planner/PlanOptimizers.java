@@ -626,7 +626,7 @@ public class PlanOptimizers
                 .add(new PushAggregationIntoTableScan(metadata))
                 .add(new PushDistinctLimitIntoTableScan(metadata))
                 .add(new PushTopNIntoTableScan(metadata))
-                .add(new PushSortIntoTableScan(metadata))
+                .add(new PushSortIntoTableScan(metadata, splitManager))
                 .build();
         IterativeOptimizer pushIntoTableScanOptimizer = new IterativeOptimizer(
                 metadata,
@@ -844,7 +844,7 @@ public class PlanOptimizers
                             .addAll(pushIntoTableScanRulesExceptJoins)
                             // PushJoinIntoTableScan must run after ReorderJoins (and DetermineJoinDistributionType)
                             // otherwise too early pushdown could prevent optimal plan from being selected.
-                            .add(new PushJoinIntoTableScan(metadata))
+                            .add(new PushJoinIntoTableScan(metadata, splitManager))
                             // DetermineTableScanNodePartitioning is needed to needs to ensure all table handles have proper partitioning determined
                             // Must run before AddExchanges
                             .add(new DetermineTableScanNodePartitioning(metadata, nodePartitioningManager, taskCountEstimator))

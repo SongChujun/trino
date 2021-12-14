@@ -1015,6 +1015,7 @@ public class AddExchanges
             SortMergeAdaptiveJoinNode result = new SortMergeAdaptiveJoinNode(
                     node.getId(),
                     node.getType(),
+                    node.getAdaptiveExecutionType(),
                     newLeftUp.getNode(),
                     newLeftDown.getNode(),
                     newRightUp.getNode(),

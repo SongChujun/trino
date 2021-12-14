@@ -16,6 +16,7 @@ package io.trino.operator.join;
 import com.google.common.util.concurrent.SettableFuture;
 import io.trino.operator.PagesIndex;
 import io.trino.spi.Page;
+import io.trino.spi.connector.SortOrder;
 import io.trino.spi.type.Type;
 
 import java.util.ArrayList;
@@ -38,7 +39,8 @@ public class SortMergeJoinBridge
     private int sortedFutureIdx;
     private int leftJoinResultIdx;
 
-    public SortMergeJoinBridge(int size, List<Type> leftSourceTypes, List<Type> rightSourceTypes, PagesIndex.Factory pagesIndexFactory, int expectedPositions)
+    public SortMergeJoinBridge(int size, List<Type> leftSourceTypes, List<Type> rightSourceTypes, PagesIndex.Factory pagesIndexFactory, int expectedPositions,
+            List<Integer> leftChannels, List<Integer> rightChannels, List<SortOrder> sortOrder)
     {
         leftUpPagesIndexList = new ArrayList<>();
         leftDownInputList = new ArrayList<>();
@@ -48,10 +50,22 @@ public class SortMergeJoinBridge
         sortFinishedCntList = new ArrayList<>();
         leftJoinResults = new ArrayList<>();
         for (int i = 0; i < size; i++) {
-            leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
-            leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
-            rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
-            rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
+            if (leftChannels != null) {
+                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
+                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
+            }
+            else {
+                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
+                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions));
+            }
+            if (rightChannels != null) {
+                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
+                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
+            }
+            else {
+                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
+                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions));
+            }
             leftJoinResults.add(new LinkedList<>());
             sortFinishedFutureList.add(SettableFuture.create());
             sortFinishedCntList.add(new AtomicInteger(0));

@@ -98,6 +98,7 @@ public class PagesIndex
     private int positionCount;
     private long pagesMemorySize;
     private long estimatedSize;
+    private PagesIndexComparator mergePagesIndexComparator;
 
     private PagesIndex(
             OrderingCompiler orderingCompiler,
@@ -123,11 +124,29 @@ public class PagesIndex
         positionCounts = new IntArrayList(1024);
 
         estimatedSize = calculateEstimatedSize();
+
+        mergePagesIndexComparator = null;
+    }
+
+    private PagesIndex(
+            OrderingCompiler orderingCompiler,
+            JoinCompiler joinCompiler,
+            BlockTypeOperators blockTypeOperators,
+            List<Type> types,
+            int expectedPositions,
+            boolean eagerCompact,
+            List<Integer> sortChannels,
+            List<SortOrder> sortOrders)
+    {
+        this(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact);
+        mergePagesIndexComparator = createPagesIndexComparator(sortChannels, sortOrders).getComparator();
     }
 
     public interface Factory
     {
         PagesIndex newPagesIndex(List<Type> types, int expectedPositions);
+
+        PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders);
     }
 
     public static class TestingFactory
@@ -148,6 +167,12 @@ public class PagesIndex
         public PagesIndex newPagesIndex(List<Type> types, int expectedPositions)
         {
             return new PagesIndex(ORDERING_COMPILER, JOIN_COMPILER, TYPE_OPERATOR_FACTORY, types, expectedPositions, eagerCompact);
+        }
+
+        @Override
+        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders)
+        {
+            return new PagesIndex(ORDERING_COMPILER, JOIN_COMPILER, TYPE_OPERATOR_FACTORY, types, expectedPositions, eagerCompact, sortChannels, sortOrders);
         }
     }
 
@@ -172,6 +197,12 @@ public class PagesIndex
         public PagesIndex newPagesIndex(List<Type> types, int expectedPositions)
         {
             return new PagesIndex(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact);
+        }
+
+        @Override
+        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders)
+        {
+            return new PagesIndex(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact, sortChannels, sortOrders);
         }
     }
 
@@ -243,11 +274,88 @@ public class PagesIndex
         estimatedSize = calculateEstimatedSize();
     }
 
+    //Invariant: before mergePage, the pages in the pagesIndex are sorted, the page is also sorted,
+    // after mergePage, the pages in pagesIndex are still sorted.
+    public void mergePage(Page page)
+    {
+        // ignore empty pages
+        if (page.getPositionCount() == 0) {
+            return;
+        }
+
+        pageCount++;
+        positionCount += page.getPositionCount();
+        positionCounts.add(page.getPositionCount());
+
+        int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
+        for (int i = 0; i < channels.length; i++) {
+            Block block = page.getBlock(i);
+            if (eagerCompact) {
+                block = block.copyRegion(0, block.getPositionCount());
+            }
+            channels[i].add(block);
+            pagesMemorySize += block.getRetainedSizeInBytes();
+        }
+
+        LongArrayList incomingValueAddress = new LongArrayList(page.getPositionCount());
+        for (int position = 0; position < page.getPositionCount(); position++) {
+            long sliceAddress = encodeSyntheticAddress(pageIndex, position);
+
+            // this uses a long[] internally, so cap size to a nice round number for safety
+            if (valueAddresses.size() >= 2_000_000_000) {
+                throw new TrinoException(GENERIC_INSUFFICIENT_RESOURCES, "Size of pages index cannot exceed 2 billion entries");
+            }
+            incomingValueAddress.add(sliceAddress);
+            valueAddresses.add(sliceAddress);
+        }
+        LongArrayList newValueAddress = mergeValueAddress(valueAddresses, incomingValueAddress);
+        this.valueAddresses.clear();
+        this.valueAddresses.addAll(newValueAddress);
+        estimatedSize = calculateEstimatedSize();
+    }
+
+    private LongArrayList mergeValueAddress(LongArrayList currentValueAddresses, LongArrayList incomingValueAddresses)
+    {
+        LongArrayList result = new LongArrayList();
+        int i = 0;
+        int j = 0;
+        while (i < currentValueAddresses.size() - incomingValueAddresses.size() && j < incomingValueAddresses.size()) {
+            int compareResult = mergePagesIndexComparator.compareTo(this, i, j + currentValueAddresses.size() - incomingValueAddresses.size());
+            if (compareResult <= 0) {
+                result.add(currentValueAddresses.getLong(i));
+                i = i + 1;
+            }
+            else {
+                result.add(incomingValueAddresses.getLong(j));
+                j = j + 1;
+            }
+        }
+
+        while (i < currentValueAddresses.size() - incomingValueAddresses.size()) {
+            result.add(currentValueAddresses.getLong(i));
+            i = i + 1;
+        }
+
+        while (j < incomingValueAddresses.size()) {
+            result.add(incomingValueAddresses.getLong(j));
+            j = j + 1;
+        }
+        return result;
+    }
+
     public void addPagesIndex(PagesIndex pagesIndex)
     {
         List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
         for (Page page : pages) {
             this.addPage(page);
+        }
+    }
+
+    public void mergePagesIndex(PagesIndex pagesIndex)
+    {
+        List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
+        for (Page page : pages) {
+            this.mergePage(page);
         }
     }
 

@@ -84,15 +84,15 @@ public class QueryBuilder
         ImmutableList.Builder<QueryParameter> accumulator = ImmutableList.builder();
 
         String sql = "SELECT " + getProjection(columns, columnExpressions);
-        sql += getFrom(baseRelation, accumulator::add);
+        sql += getFrom(baseRelation, additionalPredicate, accumulator::add);
 
         List<String> clauses = toConjuncts(session, connection, tupleDomain, accumulator::add);
-        if (additionalPredicate.isPresent()) {
-            clauses = ImmutableList.<String>builder()
-                    .addAll(clauses)
-                    .add(additionalPredicate.get())
-                    .build();
-        }
+//        if (additionalPredicate.isPresent()) {
+//            clauses = ImmutableList.<String>builder()
+//                    .addAll(clauses)
+//                    .add(additionalPredicate.get())
+//                    .build();
+//        }
         if (!clauses.isEmpty()) {
             sql += " WHERE " + Joiner.on(" AND ").join(clauses);
         }
@@ -285,12 +285,20 @@ public class QueryBuilder
                 .collect(joining(", "));
     }
 
-    private String getFrom(JdbcRelationHandle baseRelation, Consumer<QueryParameter> accumulator)
+    private String getFrom(JdbcRelationHandle baseRelation, Optional<String> additionalPredicate, Consumer<QueryParameter> accumulator)
     {
         if (baseRelation instanceof JdbcNamedRelationHandle) {
+            if (additionalPredicate.isPresent()) {
+                RemoteTableName remoteTableName = ((JdbcNamedRelationHandle) baseRelation).getRemoteTableName();
+                RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), additionalPredicate.get());
+                return " FROM " + getRelation(partitionedRemoteTableName);
+            }
             return " FROM " + getRelation(((JdbcNamedRelationHandle) baseRelation).getRemoteTableName());
         }
         if (baseRelation instanceof JdbcQueryRelationHandle) {
+            if (additionalPredicate.isPresent()) {
+                throw new IllegalArgumentException("Unsupported additionalPredicate");
+            }
             PreparedQuery preparedQuery = ((JdbcQueryRelationHandle) baseRelation).getPreparedQuery();
             preparedQuery.getParameters().forEach(accumulator);
             return " FROM (" + preparedQuery.getQuery() + ") o";
