@@ -81,17 +81,19 @@ public final class TableHandle
     @Override
     public boolean equals(Object o)
     {
+//        return false;
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        TableHandle other = (TableHandle) o;
-        return Objects.equals(catalogName, other.catalogName) &&
-                Objects.equals(connectorHandle, other.connectorHandle) &&
-                Objects.equals(transaction, other.transaction) &&
-                Objects.equals(layout, other.layout);
+        return false;
+//        if (o == null || getClass() != o.getClass()) {
+//            return false;
+//        }
+//        TableHandle other = (TableHandle) o;
+//        return Objects.equals(catalogName, other.catalogName) &&
+//                Objects.equals(connectorHandle, other.connectorHandle) &&
+//                Objects.equals(transaction, other.transaction) &&
+//                Objects.equals(layout, other.layout);
     }
 
     @Override
