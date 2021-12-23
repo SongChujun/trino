@@ -2852,13 +2852,13 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
-
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
             for (int i = 0; i < leftChannels.size(); i++) {
                 sortOrder.add(ASC_NULLS_LAST);
             }
+
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build());
 
             SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;
 
@@ -2938,13 +2938,13 @@ public class LocalExecutionPlanner
 
             int expectedPositions = 10_000;
 
-            SortMergeJoinBridge joinBridge = new SortMergeJoinBridge(partitionCount, leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
-
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
             for (int i = 0; i < leftJoinChannels.size(); i++) {
                 sortOrder.add(ASC_NULLS_LAST);
             }
+
+            SortMergeJoinBridge joinBridge = new SortMergeJoinBridge(partitionCount, leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftJoinChannels, rightJoinChannels, sortOrder.build());
 
             OperatorFactory rightSortOperator = new SortOperator.SortOperatorFactory(
                     rightContext.getNextOperatorId(), node.getId(), rightTypes, rightJoinChannels, sortOrder.build(), false, Optional.empty(), orderingCompiler, joinBridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, 2, SortOperator.SortOperatorFactory.Mode.STATIC);
@@ -3013,13 +3013,13 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, null, null, null);
-
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
             for (int i = 0; i < leftChannels.size(); i++) {
                 sortOrder.add(ASC_NULLS_LAST);
             }
+
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build());
 
             int finishedCnt = 4;
             SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;

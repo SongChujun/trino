@@ -125,7 +125,7 @@ public class SortOperator
             else if (placement == Placement.LEFT_DOWN) {
                 pagesIndex = bridge.getLeftDownPagesIndex(localPartitioningIndex);
                 if (mode == Mode.STATIC) {
-                    executionType = ExecutionType.ADD_NOSORT;
+                    executionType = ExecutionType.MERGE_NOSORT;
                 }
                 else {
                     executionType = ExecutionType.MERGE_NOSORT;
@@ -138,7 +138,7 @@ public class SortOperator
             else if (placement == Placement.RIGHT_DOWN) {
                 pagesIndex = bridge.getRightDownPagesIndex(localPartitioningIndex);
                 if (mode == Mode.STATIC) {
-                    executionType = ExecutionType.ADD_NOSORT;
+                    executionType = ExecutionType.MERGE_NOSORT;
                 }
                 else {
                     executionType = ExecutionType.MERGE_NOSORT;

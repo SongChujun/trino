@@ -194,8 +194,8 @@ public class OffloadPagesMergeOperator
     {
         if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
             if (mode == SortOperator.SortOperatorFactory.Mode.STATIC) {
-                leftUpSortedPagesIndex.addPagesIndex(leftDownSortedPagesIndex);
-                rightUpSortedPagesIndex.addPagesIndex(rightDownSortedPagesIndex);
+                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
+                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
             }
             else {
                 leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
