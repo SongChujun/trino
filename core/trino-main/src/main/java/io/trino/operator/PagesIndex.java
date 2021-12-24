@@ -101,7 +101,9 @@ public class PagesIndex
     private long pagesMemorySize;
     private long estimatedSize;
     private PagesIndexOrdering pagesIndexOrdering;
-    private List<Integer> pagesStartingPosition;
+    private List<Integer> batchEndingPosition;
+    private int pagesBatchSize;
+    private int pagesBatchIter;
 
     private PagesIndex(
             OrderingCompiler orderingCompiler,
@@ -117,6 +119,8 @@ public class PagesIndex
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
         this.valueAddresses = new LongArrayList(expectedPositions);
         this.eagerCompact = eagerCompact;
+        this.pagesBatchSize = 0;
+        pagesBatchIter = 0;
 
         //noinspection unchecked
         channels = (ObjectArrayList<Block>[]) new ObjectArrayList[types.size()];
@@ -130,7 +134,7 @@ public class PagesIndex
 
         pagesIndexOrdering = null;
 
-        pagesStartingPosition = new ArrayList<>();
+        batchEndingPosition = new ArrayList<>();
     }
 
     private PagesIndex(
@@ -140,10 +144,12 @@ public class PagesIndex
             List<Type> types,
             int expectedPositions,
             boolean eagerCompact,
+            int pagesBatchSize,
             List<Integer> sortChannels,
             List<SortOrder> sortOrders)
     {
         this(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact);
+        this.pagesBatchSize = pagesBatchSize;
         pagesIndexOrdering = createPagesIndexComparator(sortChannels, sortOrders);
     }
 
@@ -151,7 +157,7 @@ public class PagesIndex
     {
         PagesIndex newPagesIndex(List<Type> types, int expectedPositions);
 
-        PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders);
+        PagesIndex newPagesIndex(List<Type> types, int expectedPositions, int pagesBatchSize, List<Integer> sortChannels, List<SortOrder> sortOrders);
     }
 
     public static class TestingFactory
@@ -175,9 +181,9 @@ public class PagesIndex
         }
 
         @Override
-        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders)
+        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, int pagesBatchSize, List<Integer> sortChannels, List<SortOrder> sortOrders)
         {
-            return new PagesIndex(ORDERING_COMPILER, JOIN_COMPILER, TYPE_OPERATOR_FACTORY, types, expectedPositions, eagerCompact, sortChannels, sortOrders);
+            return new PagesIndex(ORDERING_COMPILER, JOIN_COMPILER, TYPE_OPERATOR_FACTORY, types, expectedPositions, eagerCompact, pagesBatchSize, sortChannels, sortOrders);
         }
     }
 
@@ -205,9 +211,9 @@ public class PagesIndex
         }
 
         @Override
-        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, List<Integer> sortChannels, List<SortOrder> sortOrders)
+        public PagesIndex newPagesIndex(List<Type> types, int expectedPositions, int pagesBatchSize, List<Integer> sortChannels, List<SortOrder> sortOrders)
         {
-            return new PagesIndex(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact, sortChannels, sortOrders);
+            return new PagesIndex(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact, pagesBatchSize, sortChannels, sortOrders);
         }
     }
 
@@ -254,8 +260,8 @@ public class PagesIndex
         }
 
         pageCount++;
-        pagesStartingPosition.add(positionCount);
         positionCount += page.getPositionCount();
+        batchEndingPosition.add(positionCount);
         positionCounts.add(page.getPositionCount());
 
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
@@ -282,15 +288,20 @@ public class PagesIndex
 
     public void addAndSortPage(Page page)
     {
-        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
         // ignore empty pages
         if (page.getPositionCount() == 0) {
             return;
         }
-        pagesStartingPosition.add(positionCount);
         pageCount++;
-        int startPosition = positionCount;
         positionCount += page.getPositionCount();
+        pagesBatchIter++;
+        boolean batchCollected = false;
+        if (pagesBatchIter == pagesBatchSize) {
+            batchEndingPosition.add(positionCount);
+            pagesBatchIter = 0;
+            batchCollected = true;
+        }
+
         positionCounts.add(page.getPositionCount());
 
         int pageIndex = (channels.length > 0) ? channels[0].size() : 0;
@@ -312,7 +323,9 @@ public class PagesIndex
             valueAddresses.add(sliceAddress);
         }
         estimatedSize = calculateEstimatedSize();
-        pagesIndexOrdering.sort(this, startPosition, positionCount);
+        if (batchCollected) {
+            pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
+        }
     }
 
     private static class Pair
@@ -339,14 +352,17 @@ public class PagesIndex
 
     public void mergePages()
     {
-        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
-        PriorityQueue<Pair> pq = new PriorityQueue<>((p1, p2) -> mergePagesIndexComparator.compareTo(this, p1.getPos(), p2.getPos()));
         if (pageCount == 0) {
             return;
         }
-        List<Integer> pagesEndingPosition = new ArrayList<>(pagesStartingPosition.subList(1, pagesStartingPosition.size()));
-        pagesEndingPosition.add(positionCount);
-        IntStream.range(0, pagesStartingPosition.size()).forEach(i -> pq.add(new Pair(pagesStartingPosition.get(i), pagesEndingPosition.get(i))));
+        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
+        PriorityQueue<Pair> pq = new PriorityQueue<>((p1, p2) -> mergePagesIndexComparator.compareTo(this, p1.getPos(), p2.getPos()));
+        List<Integer> batchStartingPositions = new ArrayList<>();
+        if (batchEndingPosition.size() >= 2) {
+            batchStartingPositions.addAll(batchEndingPosition.subList(0, batchEndingPosition.size() - 1));
+        }
+        batchStartingPositions.add(0, 0);
+        IntStream.range(0, batchStartingPositions.size()).forEach(i -> pq.add(new Pair(batchStartingPositions.get(i), batchEndingPosition.get(i))));
         LongArrayList newValueAddress = new LongArrayList();
         while (pq.size() > 0) {
             Pair cur = pq.poll();
@@ -361,6 +377,13 @@ public class PagesIndex
 
     public void mergePagesIndex(PagesIndex pagesIndex)
     {
+        // firstly sort the last batch
+        if (this.pageCount > 0) {
+            if (batchEndingPosition.get(batchEndingPosition.size() - 1) != positionCount) {
+                batchEndingPosition.add(positionCount);
+                pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
+            }
+        }
         List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
         for (Page page : pages) {
             this.addPage(page);

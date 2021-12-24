@@ -40,7 +40,7 @@ public class SortMergeJoinBridge
     private int leftJoinResultIdx;
 
     public SortMergeJoinBridge(int size, List<Type> leftSourceTypes, List<Type> rightSourceTypes, PagesIndex.Factory pagesIndexFactory, int expectedPositions,
-            List<Integer> leftChannels, List<Integer> rightChannels, List<SortOrder> sortOrder)
+            List<Integer> leftChannels, List<Integer> rightChannels, List<SortOrder> sortOrder, int pagesBatchSize)
     {
         leftUpPagesIndexList = new ArrayList<>();
         leftDownInputList = new ArrayList<>();
@@ -51,20 +51,20 @@ public class SortMergeJoinBridge
         leftJoinResults = new ArrayList<>();
         for (int i = 0; i < size; i++) {
             if (leftChannels != null) {
-                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
-                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
+                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, pagesBatchSize, leftChannels, sortOrder));
+                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, pagesBatchSize, leftChannels, sortOrder));
             }
             else {
-                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
-                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, leftChannels, sortOrder));
+                leftUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, pagesBatchSize, leftChannels, sortOrder));
+                leftDownInputList.add(pagesIndexFactory.newPagesIndex(leftSourceTypes, expectedPositions, pagesBatchSize, leftChannels, sortOrder));
             }
             if (rightChannels != null) {
-                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
-                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
+                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, pagesBatchSize, rightChannels, sortOrder));
+                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, pagesBatchSize, rightChannels, sortOrder));
             }
             else {
-                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
-                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, rightChannels, sortOrder));
+                rightUpPagesIndexList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, pagesBatchSize, rightChannels, sortOrder));
+                rightDownInputList.add(pagesIndexFactory.newPagesIndex(rightSourceTypes, expectedPositions, pagesBatchSize, rightChannels, sortOrder));
             }
             leftJoinResults.add(new LinkedList<>());
             sortFinishedFutureList.add(SettableFuture.create());
