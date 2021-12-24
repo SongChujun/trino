@@ -120,32 +120,35 @@ public class SortOperator
             ExecutionType executionType;
             if (placement == Placement.LEFT_UP) {
                 pagesIndex = bridge.getLeftUpPagesIndex(localPartitioningIndex);
-                executionType = ExecutionType.ADD_SORT;
             }
             else if (placement == Placement.LEFT_DOWN) {
                 pagesIndex = bridge.getLeftDownPagesIndex(localPartitioningIndex);
-                if (mode == Mode.STATIC) {
-                    executionType = ExecutionType.MERGE_NOSORT;
-                }
-                else {
-                    executionType = ExecutionType.MERGE_NOSORT;
-                }
             }
             else if (placement == Placement.RIGHT_UP) {
                 pagesIndex = bridge.getRightUpPagesIndex(localPartitioningIndex);
-                executionType = ExecutionType.ADD_SORT;
             }
             else if (placement == Placement.RIGHT_DOWN) {
                 pagesIndex = bridge.getRightDownPagesIndex(localPartitioningIndex);
-                if (mode == Mode.STATIC) {
-                    executionType = ExecutionType.MERGE_NOSORT;
-                }
-                else {
-                    executionType = ExecutionType.MERGE_NOSORT;
-                }
             }
             else {
                 throw new UnsupportedOperationException("unsupported placement");
+            }
+
+            if (placement == Placement.LEFT_UP || placement == Placement.RIGHT_UP) {
+                if (mode == Mode.STATIC) {
+                    executionType = ExecutionType.STORE_SORT;
+                }
+                else {
+                    executionType = ExecutionType.SORT_MERGE;
+                }
+            }
+            else {
+                if (mode == Mode.STATIC) {
+                    executionType = ExecutionType.STORE;
+                }
+                else {
+                    executionType = ExecutionType.STORE_MERGE;
+                }
             }
 
             return new SortOperator(
@@ -185,9 +188,10 @@ public class SortOperator
 
     public enum ExecutionType
     {
-        ADD_SORT,
-        ADD_NOSORT,
-        MERGE_NOSORT
+        SORT_MERGE,
+        STORE_MERGE,
+        STORE_SORT,
+        STORE
     }
 
     private final OperatorContext operatorContext;
@@ -278,7 +282,7 @@ public class SortOperator
                     finishMemoryRevoke.run();
                 }
             }
-            if (executionType == ExecutionType.ADD_SORT) {
+            if (executionType == ExecutionType.STORE_SORT) {
                 pageIndex.sort(sortChannels, sortOrder);
             }
             Iterator<Page> sortedPagesIndex = pageIndex.getSortedPages();
@@ -319,11 +323,11 @@ public class SortOperator
         // TODO: remove when retained memory accounting for pages does not
         // count shared data structures multiple times
 //        page.compact();
-        if ((executionType == ExecutionType.ADD_SORT) || (executionType == ExecutionType.ADD_NOSORT)) {
+        if ((executionType == ExecutionType.STORE_MERGE) || (executionType == ExecutionType.STORE_SORT) || (executionType == ExecutionType.STORE)) {
             pageIndex.addPage(page);
         }
-        else if (executionType == ExecutionType.MERGE_NOSORT) {
-            pageIndex.mergePage(page);
+        else if (executionType == ExecutionType.SORT_MERGE) {
+            pageIndex.addAndSortPage(page);
         }
         else {
             throw new UnsupportedOperationException();

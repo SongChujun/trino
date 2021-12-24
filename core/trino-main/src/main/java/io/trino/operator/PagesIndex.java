@@ -47,12 +47,14 @@ import org.openjdk.jol.info.ClassLayout;
 
 import javax.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.PriorityQueue;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -98,7 +100,8 @@ public class PagesIndex
     private int positionCount;
     private long pagesMemorySize;
     private long estimatedSize;
-    private PagesIndexComparator mergePagesIndexComparator;
+    private PagesIndexOrdering pagesIndexOrdering;
+    private List<Integer> pagesStartingPosition;
 
     private PagesIndex(
             OrderingCompiler orderingCompiler,
@@ -125,7 +128,9 @@ public class PagesIndex
 
         estimatedSize = calculateEstimatedSize();
 
-        mergePagesIndexComparator = null;
+        pagesIndexOrdering = null;
+
+        pagesStartingPosition = new ArrayList<>();
     }
 
     private PagesIndex(
@@ -139,7 +144,7 @@ public class PagesIndex
             List<SortOrder> sortOrders)
     {
         this(orderingCompiler, joinCompiler, blockTypeOperators, types, expectedPositions, eagerCompact);
-        mergePagesIndexComparator = createPagesIndexComparator(sortChannels, sortOrders).getComparator();
+        pagesIndexOrdering = createPagesIndexComparator(sortChannels, sortOrders);
     }
 
     public interface Factory
@@ -249,6 +254,7 @@ public class PagesIndex
         }
 
         pageCount++;
+        pagesStartingPosition.add(positionCount);
         positionCount += page.getPositionCount();
         positionCounts.add(page.getPositionCount());
 
@@ -274,16 +280,16 @@ public class PagesIndex
         estimatedSize = calculateEstimatedSize();
     }
 
-    //Invariant: before mergePage, the pages in the pagesIndex are sorted, the page is also sorted,
-    // after mergePage, the pages in pagesIndex are still sorted.
-    public void mergePage(Page page)
+    public void addAndSortPage(Page page)
     {
+        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
         // ignore empty pages
         if (page.getPositionCount() == 0) {
             return;
         }
-
+        pagesStartingPosition.add(positionCount);
         pageCount++;
+        int startPosition = positionCount;
         positionCount += page.getPositionCount();
         positionCounts.add(page.getPositionCount());
 
@@ -296,8 +302,6 @@ public class PagesIndex
             channels[i].add(block);
             pagesMemorySize += block.getRetainedSizeInBytes();
         }
-
-        LongArrayList incomingValueAddress = new LongArrayList(page.getPositionCount());
         for (int position = 0; position < page.getPositionCount(); position++) {
             long sliceAddress = encodeSyntheticAddress(pageIndex, position);
 
@@ -305,58 +309,63 @@ public class PagesIndex
             if (valueAddresses.size() >= 2_000_000_000) {
                 throw new TrinoException(GENERIC_INSUFFICIENT_RESOURCES, "Size of pages index cannot exceed 2 billion entries");
             }
-            incomingValueAddress.add(sliceAddress);
             valueAddresses.add(sliceAddress);
         }
-        LongArrayList newValueAddress = mergeValueAddress(valueAddresses, incomingValueAddress);
-        this.valueAddresses.clear();
-        this.valueAddresses.addAll(newValueAddress);
         estimatedSize = calculateEstimatedSize();
+        pagesIndexOrdering.sort(this, startPosition, positionCount);
     }
 
-    private LongArrayList mergeValueAddress(LongArrayList currentValueAddresses, LongArrayList incomingValueAddresses)
+    private static class Pair
     {
-        LongArrayList result = new LongArrayList();
-        int i = 0;
-        int j = 0;
-        while (i < currentValueAddresses.size() - incomingValueAddresses.size() && j < incomingValueAddresses.size()) {
-            int compareResult = mergePagesIndexComparator.compareTo(this, i, j + currentValueAddresses.size() - incomingValueAddresses.size());
-            if (compareResult <= 0) {
-                result.add(currentValueAddresses.getLong(i));
-                i = i + 1;
-            }
-            else {
-                result.add(incomingValueAddresses.getLong(j));
-                j = j + 1;
-            }
+        private final int pos;
+        private final int end;
+
+        public Pair(int pos, int end)
+        {
+            this.pos = pos;
+            this.end = end;
         }
 
-        while (i < currentValueAddresses.size() - incomingValueAddresses.size()) {
-            result.add(currentValueAddresses.getLong(i));
-            i = i + 1;
+        public int getPos()
+        {
+            return pos;
         }
 
-        while (j < incomingValueAddresses.size()) {
-            result.add(incomingValueAddresses.getLong(j));
-            j = j + 1;
+        public int getEnd()
+        {
+            return end;
         }
-        return result;
     }
 
-    public void addPagesIndex(PagesIndex pagesIndex)
+    public void mergePages()
     {
-        List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
-        for (Page page : pages) {
-            this.addPage(page);
+        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
+        PriorityQueue<Pair> pq = new PriorityQueue<>((p1, p2) -> mergePagesIndexComparator.compareTo(this, p1.getPos(), p2.getPos()));
+        if (pageCount == 0) {
+            return;
         }
+        List<Integer> pagesEndingPosition = new ArrayList<>(pagesStartingPosition.subList(1, pagesStartingPosition.size()));
+        pagesEndingPosition.add(positionCount);
+        IntStream.range(0, pagesStartingPosition.size()).forEach(i -> pq.add(new Pair(pagesStartingPosition.get(i), pagesEndingPosition.get(i))));
+        LongArrayList newValueAddress = new LongArrayList();
+        while (pq.size() > 0) {
+            Pair cur = pq.poll();
+            newValueAddress.add(valueAddresses.getLong(cur.getPos()));
+            if (cur.getPos() + 1 != cur.getEnd()) {
+                pq.add(new Pair(cur.getPos() + 1, cur.getEnd()));
+            }
+        }
+        valueAddresses.clear();
+        valueAddresses.addAll(newValueAddress);
     }
 
     public void mergePagesIndex(PagesIndex pagesIndex)
     {
         List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
         for (Page page : pages) {
-            this.mergePage(page);
+            this.addPage(page);
         }
+        this.mergePages();
     }
 
     public DataSize getEstimatedSize()

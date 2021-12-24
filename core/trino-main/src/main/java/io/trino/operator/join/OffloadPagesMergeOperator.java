@@ -192,19 +192,10 @@ public class OffloadPagesMergeOperator
     @Override
     public Page getOutput()
     {
-        if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
-            if (mode == SortOperator.SortOperatorFactory.Mode.STATIC) {
-                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
-                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
-            }
-            else {
-                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
-                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
-            }
-
-            leftDownSortedPagesIndex.clear();
-            rightDownSortedPagesIndex.clear();
-        }
+        leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
+        rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
+        leftDownSortedPagesIndex.clear();
+        rightDownSortedPagesIndex.clear();
         return pagesMergeOperator.getOutput();
     }
 
