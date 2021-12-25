@@ -277,6 +277,7 @@ import static io.trino.SystemSessionProperties.getAggregationOperatorUnspillMemo
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageRowCount;
 import static io.trino.SystemSessionProperties.getFilterAndProjectMinOutputPageSize;
 import static io.trino.SystemSessionProperties.getJoinType;
+import static io.trino.SystemSessionProperties.getPagesSortBatchSize;
 import static io.trino.SystemSessionProperties.getTaskConcurrency;
 import static io.trino.SystemSessionProperties.getTaskWriterCount;
 import static io.trino.SystemSessionProperties.isEnableLargeDynamicFilters;
@@ -2858,7 +2859,7 @@ public class LocalExecutionPlanner
                 sortOrder.add(ASC_NULLS_LAST);
             }
 
-            int pagesBatchSize = 10;
+            int pagesBatchSize = getPagesSortBatchSize(session);
 
             SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build(), pagesBatchSize);
 
@@ -2940,7 +2941,7 @@ public class LocalExecutionPlanner
 
             int expectedPositions = 10_000;
 
-            int pagesBatchSize = 10;
+            int pagesBatchSize = getPagesSortBatchSize(session);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
@@ -3017,7 +3018,7 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            int pagesBatchSize = 10;
+            int pagesBatchSize = getPagesSortBatchSize(session);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
@@ -3109,7 +3110,7 @@ public class LocalExecutionPlanner
 
             boolean eagerCompact = false; //hacky;
 
-            int pagesBatchSize = 10;
+            int pagesBatchSize = getPagesSortBatchSize(session);
 
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 

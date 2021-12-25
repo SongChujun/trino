@@ -62,6 +62,7 @@ public final class SystemSessionProperties
     public static final String PREFER_STREAMING_OPERATORS = "prefer_streaming_operators";
     public static final String TASK_WRITER_COUNT = "task_writer_count";
     public static final String TASK_CONCURRENCY = "task_concurrency";
+    public static final String PAGES_SORT_BATCH_SIZE = "pages_sort_batch_size";
     public static final String TASK_SHARE_INDEX_LOADING = "task_share_index_loading";
     public static final String QUERY_MAX_MEMORY = "query_max_memory";
     public static final String QUERY_MAX_TOTAL_MEMORY = "query_max_total_memory";
@@ -269,6 +270,12 @@ public final class SystemSessionProperties
                         "Default number of local parallel jobs per worker",
                         taskManagerConfig.getTaskConcurrency(),
                         value -> validateValueIsPowerOfTwo(value, TASK_CONCURRENCY),
+                        false),
+                integerProperty(
+                        PAGES_SORT_BATCH_SIZE,
+                        "Default size of batch for sorting",
+                        taskManagerConfig.getTaskConcurrency(),
+                        value -> validateIntegerValue(value, PAGES_SORT_BATCH_SIZE, 1, false),
                         false),
                 booleanProperty(
                         TASK_SHARE_INDEX_LOADING,
@@ -776,6 +783,11 @@ public final class SystemSessionProperties
     public static int getTaskConcurrency(Session session)
     {
         return session.getSystemProperty(TASK_CONCURRENCY, Integer.class);
+    }
+
+    public static int getPagesSortBatchSize(Session session)
+    {
+        return session.getSystemProperty(PAGES_SORT_BATCH_SIZE, Integer.class);
     }
 
     public static boolean isShareIndexLoading(Session session)

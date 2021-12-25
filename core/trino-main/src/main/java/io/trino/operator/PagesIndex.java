@@ -379,10 +379,10 @@ public class PagesIndex
     {
         // firstly sort the last batch
         if (this.pageCount > 0) {
-            if (batchEndingPosition.get(batchEndingPosition.size() - 1) != positionCount) {
+            if (batchEndingPosition.isEmpty() || (batchEndingPosition.get(batchEndingPosition.size() - 1) != positionCount)) {
                 batchEndingPosition.add(positionCount);
-                pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
             }
+            pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
         }
         List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
         for (Page page : pages) {
