@@ -375,20 +375,63 @@ public class PagesIndex
         valueAddresses.addAll(newValueAddress);
     }
 
+    public void mergePagesSkippingFirst()
+    {
+        if (pageCount == 0) {
+            return;
+        }
+        PagesIndexComparator mergePagesIndexComparator = pagesIndexOrdering.getComparator();
+        PriorityQueue<Pair> pq = new PriorityQueue<>((p1, p2) -> mergePagesIndexComparator.compareTo(this, p1.getPos(), p2.getPos()));
+        List<Integer> batchStartingPositions = new ArrayList<>();
+        if (batchEndingPosition.size() >= 2) {
+            batchStartingPositions.addAll(batchEndingPosition.subList(0, batchEndingPosition.size() - 1));
+        }
+        batchStartingPositions.add(0, 0);
+
+        LongArrayList newValueAddress = new LongArrayList();
+        for (int i = 0; i < batchEndingPosition.get(0); i++) {
+            newValueAddress.add(valueAddresses.getLong(i));
+        }
+
+        batchStartingPositions.remove(0);
+        batchEndingPosition.remove(0);
+        IntStream.range(0, batchStartingPositions.size()).forEach(i -> pq.add(new Pair(batchStartingPositions.get(i), batchEndingPosition.get(i))));
+        while (pq.size() > 0) {
+            Pair cur = pq.poll();
+            newValueAddress.add(valueAddresses.getLong(cur.getPos()));
+            if (cur.getPos() + 1 != cur.getEnd()) {
+                pq.add(new Pair(cur.getPos() + 1, cur.getEnd()));
+            }
+        }
+        valueAddresses.clear();
+        valueAddresses.addAll(newValueAddress);
+    }
+
     public void mergePagesIndex(PagesIndex pagesIndex)
     {
         // firstly sort the last batch
         if (this.pageCount > 0) {
             if (batchEndingPosition.isEmpty() || (batchEndingPosition.get(batchEndingPosition.size() - 1) != positionCount)) {
                 batchEndingPosition.add(positionCount);
+                pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
             }
-            pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
         }
         List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
         for (Page page : pages) {
             this.addPage(page);
         }
         this.mergePages();
+    }
+
+    public void addPages(PagesIndex pagesIndex)
+    {
+        batchEndingPosition.clear();
+        batchEndingPosition.add(positionCount);
+        List<Page> pages = JoinUtils.channelsToPages(ImmutableList.copyOf(pagesIndex.channels));
+        for (Page page : pages) {
+            this.addPage(page);
+        }
+        this.mergePagesSkippingFirst();
     }
 
     public DataSize getEstimatedSize()
