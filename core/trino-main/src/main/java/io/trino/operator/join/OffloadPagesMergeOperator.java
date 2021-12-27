@@ -129,6 +129,7 @@ public class OffloadPagesMergeOperator
     private final PagesIndex rightDownSortedPagesIndex;
     private final PagesMergeOperator pagesMergeOperator;
     private final SortOperator.SortOperatorFactory.Mode mode;
+    private boolean resultMerged;
 
     public OffloadPagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
@@ -151,6 +152,7 @@ public class OffloadPagesMergeOperator
         pagesMergeOperator = new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftUpSortedPagesIndex, rightUpSortedPagesIndex,
                 leftPagesIndexComparator, rightPagesIndexComparator, sortFinishedFuture, joinEqualOperators, pageBuilder);
         this.mode = mode;
+        this.resultMerged = false;
     }
 
     @Override
@@ -193,11 +195,12 @@ public class OffloadPagesMergeOperator
     public Page getOutput()
     {
         if (mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) {
-            if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
+            if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || !resultMerged) {
                 leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
                 rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
                 leftDownSortedPagesIndex.clear();
                 rightDownSortedPagesIndex.clear();
+                resultMerged = true;
             }
         }
         else {
