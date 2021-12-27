@@ -67,6 +67,7 @@ public class TaskManagerConfig
 
     private int writerCount = 1;
     private int taskConcurrency = 16;
+    private int pagesSortBatchSize = 16;
     private int httpResponseThreads = 100;
     private int httpTimeoutThreads = 3;
 
@@ -388,6 +389,21 @@ public class TaskManagerConfig
     public TaskManagerConfig setTaskConcurrency(int taskConcurrency)
     {
         this.taskConcurrency = taskConcurrency;
+        return this;
+    }
+
+    @Min(1)
+    @NotNull
+    public int getPagesSortBatchSize()
+    {
+        return pagesSortBatchSize;
+    }
+
+    @Config("task.pages-sort-batch-size")
+    @ConfigDescription("Default size of batch for sorting")
+    public TaskManagerConfig setPagesSortBatchSize(int pagesSortBatchSize)
+    {
+        this.pagesSortBatchSize = pagesSortBatchSize;
         return this;
     }
 
