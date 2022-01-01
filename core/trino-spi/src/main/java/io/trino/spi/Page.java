@@ -49,6 +49,7 @@ public final class Page
     private volatile long sizeInBytes = -1;
     private volatile long retainedSizeInBytes = -1;
     private volatile long logicalSizeInBytes = -1;
+    private String splitIdentifier = "";
 
     public Page(Block... blocks)
     {
@@ -70,6 +71,16 @@ public final class Page
         requireNonNull(blocks, "blocks is null");
         this.positionCount = positionCount;
         this.blocks = blocksCopyRequired ? blocks.clone() : blocks;
+    }
+
+    public void setSplitIdentifier(String splitIdentifier)
+    {
+        this.splitIdentifier = splitIdentifier;
+    }
+
+    public String getSplitIdentifier()
+    {
+        return splitIdentifier;
     }
 
     public int getChannelCount()

@@ -56,7 +56,7 @@ import static java.util.Objects.requireNonNull;
 public class ExchangeClient
         implements Closeable
 {
-    private static final SerializedPage NO_MORE_PAGES = new SerializedPage(EMPTY_SLICE, PageCodecMarker.MarkerSet.empty(), 0, 0);
+    private static final SerializedPage NO_MORE_PAGES = new SerializedPage(EMPTY_SLICE, PageCodecMarker.MarkerSet.empty(), 0, 0, "");
     private static final ListenableFuture<?> NOT_BLOCKED = immediateFuture(null);
 
     private final String selfAddress;

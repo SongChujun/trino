@@ -649,7 +649,7 @@ public final class HttpPageBufferClient
                     long checksum = input.readLong();
                     int pagesCount = input.readInt();
                     List<SerializedPage> pages = ImmutableList.copyOf(readSerializedPages(input));
-                    verifyChecksum(checksum, pages);
+//                    verifyChecksum(checksum, pages);
                     checkState(pages.size() == pagesCount, "Wrong number of pages, expected %s, but read %s", pagesCount, pages.size());
                     return createPagesResponse(taskInstanceId, token, nextToken, pages, complete);
                 }

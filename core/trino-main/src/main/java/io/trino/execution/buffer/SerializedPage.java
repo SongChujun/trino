@@ -30,14 +30,16 @@ public class SerializedPage
     private final int positionCount;
     private final int uncompressedSizeInBytes;
     private final byte pageCodecMarkers;
+    private final String splitIdentifier;
 
-    public SerializedPage(Slice slice, PageCodecMarker.MarkerSet markers, int positionCount, int uncompressedSizeInBytes)
+    public SerializedPage(Slice slice, PageCodecMarker.MarkerSet markers, int positionCount, int uncompressedSizeInBytes, String splitIdentifier)
     {
         this.slice = requireNonNull(slice, "slice is null");
         this.positionCount = positionCount;
         checkArgument(uncompressedSizeInBytes >= 0, "uncompressedSizeInBytes is negative");
         this.uncompressedSizeInBytes = uncompressedSizeInBytes;
         this.pageCodecMarkers = requireNonNull(markers, "markers is null").byteValue();
+        this.splitIdentifier = splitIdentifier;
         //  Encrypted pages may include arbitrary overhead from ciphers, sanity checks skipped
         if (!markers.contains(ENCRYPTED)) {
             if (markers.contains(COMPRESSED)) {
@@ -47,6 +49,19 @@ public class SerializedPage
                 checkArgument(uncompressedSizeInBytes == slice.length(), "uncompressed size must be equal to slice length when uncompressed");
             }
         }
+    }
+
+    public int getSplitNumber()
+    {
+        if (splitIdentifier.equals("")) {
+            return -1;
+        }
+        int startingIndex = splitIdentifier.length() - 1;
+        while (Character.isDigit(splitIdentifier.charAt(startingIndex))) {
+            startingIndex--;
+        }
+        startingIndex++;
+        return Integer.parseInt(splitIdentifier.substring(startingIndex));
     }
 
     public int getSizeInBytes()
@@ -98,5 +113,10 @@ public class SerializedPage
                 .add("sizeInBytes", slice.length())
                 .add("uncompressedSizeInBytes", uncompressedSizeInBytes)
                 .toString();
+    }
+
+    public String getSplitIdentifier()
+    {
+        return splitIdentifier;
     }
 }

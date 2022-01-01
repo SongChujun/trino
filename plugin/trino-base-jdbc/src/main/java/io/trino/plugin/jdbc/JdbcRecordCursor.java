@@ -29,6 +29,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -57,6 +58,7 @@ public class JdbcRecordCursor
     private final JdbcClient jdbcClient;
     private final Connection connection;
     private final PreparedStatement statement;
+    private final Optional<String> splitIdentifier;
     @Nullable
     private ResultSet resultSet;
     private boolean closed;
@@ -74,6 +76,7 @@ public class JdbcRecordCursor
         longReadFunctions = new LongReadFunction[columnHandles.size()];
         sliceReadFunctions = new SliceReadFunction[columnHandles.size()];
         objectReadFunctions = new ObjectReadFunction[columnHandles.size()];
+        splitIdentifier = split.getAdditionalPredicate();
 
         try {
             connection = jdbcClient.getConnection(session, split);
@@ -252,6 +255,12 @@ public class JdbcRecordCursor
         catch (SQLException | RuntimeException e) {
             throw handleSqlException(e);
         }
+    }
+
+    @Override
+    public String getSplitIdentifier()
+    {
+        return splitIdentifier.orElse("");
     }
 
     @SuppressWarnings("UnusedDeclaration")

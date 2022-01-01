@@ -53,6 +53,11 @@ public interface RecordCursor
         return 0;
     }
 
+    default String getSplitIdentifier()
+    {
+        return "";
+    }
+
     @Override
     void close();
 }

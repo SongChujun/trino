@@ -50,15 +50,16 @@ public final class PagesSerdeUtil
         }
     }
 
-    static Page readRawPage(int positionCount, SliceInput input, BlockEncodingSerde blockEncodingSerde)
+    static Page readRawPage(int positionCount, SliceInput input, BlockEncodingSerde blockEncodingSerde, String splitIdentifier)
     {
         int numberOfBlocks = input.readInt();
         Block[] blocks = new Block[numberOfBlocks];
         for (int i = 0; i < blocks.length; i++) {
             blocks[i] = readBlock(blockEncodingSerde, input);
         }
-
-        return new Page(positionCount, blocks);
+        Page res = new Page(positionCount, blocks);
+        res.setSplitIdentifier(splitIdentifier);
+        return res;
     }
 
     public static void writeSerializedPage(SliceOutput output, SerializedPage page)
@@ -68,6 +69,7 @@ public final class PagesSerdeUtil
         output.writeByte(page.getPageCodecMarkers());
         output.writeInt(page.getUncompressedSizeInBytes());
         output.writeInt(page.getSizeInBytes());
+        output.writeInt(page.getSplitNumber());
         output.writeBytes(page.getSlice());
     }
 
@@ -77,7 +79,8 @@ public final class PagesSerdeUtil
                 page.getPositionCount(),
                 page.getPageCodecMarkers(),
                 page.getUncompressedSizeInBytes(),
-                page.getSizeInBytes()));
+                page.getSizeInBytes(),
+                page.getSplitNumber()));
         hash.update(page.getSlice());
     }
 
@@ -87,8 +90,9 @@ public final class PagesSerdeUtil
         PageCodecMarker.MarkerSet markers = PageCodecMarker.MarkerSet.fromByteValue(sliceInput.readByte());
         int uncompressedSizeInBytes = sliceInput.readInt();
         int sizeInBytes = sliceInput.readInt();
+        int splitNumber = sliceInput.readInt();
         Slice slice = sliceInput.readSlice(sizeInBytes);
-        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes);
+        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes, String.valueOf(splitNumber));
     }
 
     public static long writeSerializedPages(SliceOutput sliceOutput, Iterable<SerializedPage> pages)

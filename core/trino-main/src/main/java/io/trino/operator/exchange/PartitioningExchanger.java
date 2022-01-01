@@ -75,6 +75,7 @@ class PartitioningExchanger
             IntArrayList positions = partitionAssignments[partition];
             if (!positions.isEmpty()) {
                 Page pageSplit = page.copyPositions(positions.elements(), 0, positions.size());
+                pageSplit.setSplitIdentifier(page.getSplitIdentifier());
                 memoryManager.updateMemoryUsage(pageSplit.getRetainedSizeInBytes());
                 buffers.get(partition).accept(new PageReference(pageSplit, 1, onPageReleased));
             }

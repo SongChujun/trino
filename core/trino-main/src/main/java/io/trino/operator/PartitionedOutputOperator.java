@@ -321,6 +321,7 @@ public class PartitionedOutputOperator
         private final AtomicLong pagesAdded = new AtomicLong();
         private boolean hasAnyRowBeenReplicated;
         private final OperatorContext operatorContext;
+        private String splitIdentifier;
 
         public PagePartitioner(
                 PartitionFunction partitionFunction,
@@ -351,6 +352,7 @@ public class PartitionedOutputOperator
             this.sourceTypes = requireNonNull(sourceTypes, "sourceTypes is null");
             this.serde = requireNonNull(serdeFactory, "serdeFactory is null").createPagesSerde();
             this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
+            this.splitIdentifier = null;
 
             //  Ensure partition channels align with constant arguments provided
             for (int i = 0; i < this.partitionChannels.length; i++) {
@@ -405,6 +407,13 @@ public class PartitionedOutputOperator
 
         public void partitionPage(Page page)
         {
+            if (splitIdentifier == null) {
+                splitIdentifier = page.getSplitIdentifier();
+            }
+            if (!splitIdentifier.equals(page.getSplitIdentifier())) {
+                flush(true);
+                splitIdentifier = page.getSplitIdentifier();
+            }
             requireNonNull(page, "page is null");
 
             Page partitionFunctionArgs = getPartitionFunctionArguments(page);
@@ -463,6 +472,7 @@ public class PartitionedOutputOperator
                     PageBuilder partitionPageBuilder = pageBuilders[partition];
                     if (!partitionPageBuilder.isEmpty() && (force || partitionPageBuilder.isFull())) {
                         Page pagePartition = partitionPageBuilder.build();
+                        pagePartition.setSplitIdentifier(splitIdentifier != null ? splitIdentifier : "");
                         partitionPageBuilder.reset();
 
                         operatorContext.recordOutput(pagePartition.getSizeInBytes(), pagePartition.getPositionCount());

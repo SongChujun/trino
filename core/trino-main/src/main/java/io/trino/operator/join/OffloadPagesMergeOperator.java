@@ -194,22 +194,12 @@ public class OffloadPagesMergeOperator
     @Override
     public Page getOutput()
     {
-        if (mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) {
-            if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || !resultMerged) {
-                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex);
-                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex);
-                leftDownSortedPagesIndex.clear();
-                rightDownSortedPagesIndex.clear();
-                resultMerged = true;
-            }
-        }
-        else {
-            if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0)) {
-                leftUpSortedPagesIndex.addPages(leftDownSortedPagesIndex);
-                rightUpSortedPagesIndex.addPages(rightDownSortedPagesIndex);
-                leftDownSortedPagesIndex.clear();
-                rightDownSortedPagesIndex.clear();
-            }
+        if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || ((mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) && !resultMerged)) {
+            leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex, mode);
+            rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex, mode);
+            leftDownSortedPagesIndex.clear();
+            rightDownSortedPagesIndex.clear();
+            resultMerged = true;
         }
         return pagesMergeOperator.getOutput();
     }

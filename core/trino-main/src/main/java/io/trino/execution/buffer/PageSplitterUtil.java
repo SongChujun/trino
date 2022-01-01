@@ -48,9 +48,11 @@ public final class PageSplitterUtil
         int half = positionCount / 2;
 
         Page leftHalf = page.getRegion(0, half);
+        leftHalf.setSplitIdentifier(page.getSplitIdentifier());
         outputPages.addAll(splitPage(leftHalf, maxPageSizeInBytes, previousSize));
 
         Page rightHalf = page.getRegion(half, positionCount - half);
+        rightHalf.setSplitIdentifier(page.getSplitIdentifier());
         outputPages.addAll(splitPage(rightHalf, maxPageSizeInBytes, previousSize));
 
         return outputPages.build();
