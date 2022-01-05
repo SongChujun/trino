@@ -15,6 +15,8 @@ package io.trino.benchmark.driver;
 
 import io.airlift.units.Duration;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -29,15 +31,16 @@ public class BenchmarkQueryResult
     }
 
     private static final Stat FAIL_STAT = new Stat(new double[0]);
+    private static final List<Stat> FAIL_STAT_LIST = new ArrayList<>();
 
-    public static BenchmarkQueryResult passResult(Suite suite, BenchmarkQuery benchmarkQuery, Stat wallTimeNanos, Stat processCpuTimeNanos, Stat queryCpuTimeNanos)
+    public static BenchmarkQueryResult passResult(Suite suite, BenchmarkQuery benchmarkQuery, Stat wallTimeNanos, Stat processCpuTimeNanos, Stat queryCpuTimeNanos, List<Stat> subStageWallTimeNanos, List<Stat> subStageCpuTimeNanos)
     {
-        return new BenchmarkQueryResult(suite, benchmarkQuery, Status.PASS, Optional.empty(), wallTimeNanos, processCpuTimeNanos, queryCpuTimeNanos);
+        return new BenchmarkQueryResult(suite, benchmarkQuery, Status.PASS, Optional.empty(), wallTimeNanos, processCpuTimeNanos, queryCpuTimeNanos, subStageWallTimeNanos, subStageCpuTimeNanos);
     }
 
     public static BenchmarkQueryResult failResult(Suite suite, BenchmarkQuery benchmarkQuery, String errorMessage)
     {
-        return new BenchmarkQueryResult(suite, benchmarkQuery, Status.FAIL, Optional.of(errorMessage), FAIL_STAT, FAIL_STAT, FAIL_STAT);
+        return new BenchmarkQueryResult(suite, benchmarkQuery, Status.FAIL, Optional.of(errorMessage), FAIL_STAT, FAIL_STAT, FAIL_STAT, FAIL_STAT_LIST, FAIL_STAT_LIST);
     }
 
     private final Suite suite;
@@ -47,6 +50,8 @@ public class BenchmarkQueryResult
     private final Stat wallTimeNanos;
     private final Stat processCpuTimeNanos;
     private final Stat queryCpuTimeNanos;
+    private final List<Stat> subStageWallTimeNanos;
+    private final List<Stat> subStageCpuTimeNanos;
 
     private BenchmarkQueryResult(
             Suite suite,
@@ -55,7 +60,9 @@ public class BenchmarkQueryResult
             Optional<String> errorMessage,
             Stat wallTimeNanos,
             Stat processCpuTimeNanos,
-            Stat queryCpuTimeNanos)
+            Stat queryCpuTimeNanos,
+            List<Stat> subStageWallTimeNanos,
+            List<Stat> subStageCpuTimeNanos)
     {
         this.suite = requireNonNull(suite, "suite is null");
         this.benchmarkQuery = requireNonNull(benchmarkQuery, "benchmarkQuery is null");
@@ -64,6 +71,8 @@ public class BenchmarkQueryResult
         this.wallTimeNanos = requireNonNull(wallTimeNanos, "wallTimeNanos is null");
         this.processCpuTimeNanos = requireNonNull(processCpuTimeNanos, "processCpuTimeNanos is null");
         this.queryCpuTimeNanos = requireNonNull(queryCpuTimeNanos, "queryCpuTimeNanos is null");
+        this.subStageWallTimeNanos = requireNonNull(subStageWallTimeNanos, "subStageWallTimeNanos is null");
+        this.subStageCpuTimeNanos = requireNonNull(subStageCpuTimeNanos, "subStageCpuTimeNanos is null");
     }
 
     public Suite getSuite()
@@ -99,6 +108,16 @@ public class BenchmarkQueryResult
     public Stat getQueryCpuTimeNanos()
     {
         return queryCpuTimeNanos;
+    }
+
+    public List<Stat> getSubStageWallTimeNanos()
+    {
+        return subStageWallTimeNanos;
+    }
+
+    public List<Stat> getSubStageCpuTimeNanos()
+    {
+        return subStageCpuTimeNanos;
     }
 
     @Override

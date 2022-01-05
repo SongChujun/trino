@@ -26,12 +26,14 @@ import io.airlift.units.Duration;
 import io.trino.client.ClientSession;
 import io.trino.client.QueryData;
 import io.trino.client.QueryError;
+import io.trino.client.StageStats;
 import io.trino.client.StatementClient;
 import io.trino.client.StatementStats;
 import okhttp3.OkHttpClient;
 
 import java.io.Closeable;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -121,6 +123,8 @@ public class BenchmarkQueryRunner
         double[] wallTimeNanos = new double[runs];
         double[] processCpuTimeNanos = new double[runs];
         double[] queryCpuTimeNanos = new double[runs];
+        List<double[]> subStageWallTimeNanos = new ArrayList<>();
+        List<double[]> subStageCpuTimeNanos = new ArrayList<>();
         for (int i = 0; i < runs; ) {
             try {
                 long startCpuTime = getTotalCpuTime();
@@ -129,12 +133,12 @@ public class BenchmarkQueryRunner
                 StatementStats statementStats = execute(session, query.getName(), query.getSql());
 
                 long endWallTime = System.nanoTime();
-                long endCpuTime = getTotalCpuTime();
+//                long endCpuTime = getTotalCpuTime();
 
-                wallTimeNanos[i] = endWallTime - startWallTime;
-                processCpuTimeNanos[i] = endCpuTime - startCpuTime;
+                wallTimeNanos[i] = MILLISECONDS.toNanos(statementStats.getWallTimeMillis());
+                processCpuTimeNanos[i] = 0;
                 queryCpuTimeNanos[i] = MILLISECONDS.toNanos(statementStats.getCpuTimeMillis());
-
+                getSubStageInfo(subStageWallTimeNanos, subStageCpuTimeNanos, i, statementStats);
                 i++;
                 failures = 0;
             }
@@ -146,12 +150,47 @@ public class BenchmarkQueryRunner
             }
         }
 
+        List<Stat> subStageWallTimeNanosStatList = new ArrayList<>();
+        List<Stat> subStageCpuTimeNanosStatList = new ArrayList<>();
+        for (double[] subStageStat : subStageWallTimeNanos) {
+            subStageWallTimeNanosStatList.add(new Stat(subStageStat));
+        }
+
+        for (double[] subStageStat : subStageCpuTimeNanos) {
+            subStageCpuTimeNanosStatList.add(new Stat(subStageStat));
+        }
+
         return passResult(
                 suite,
                 query,
                 new Stat(wallTimeNanos),
                 new Stat(processCpuTimeNanos),
-                new Stat(queryCpuTimeNanos));
+                new Stat(queryCpuTimeNanos),
+                subStageWallTimeNanosStatList,
+                subStageCpuTimeNanosStatList);
+    }
+
+    private void getSubStageInfo(List<double[]> subStageWallTimeNanos, List<double[]> subStageCpuTimeNanos, int i, StatementStats statementStats)
+    {
+        int idx = 0;
+        List<StageStats> curLayer = new ArrayList<>();
+        List<StageStats> nextLayer = new ArrayList<>();
+        curLayer.add(statementStats.getRootStage());
+        while (!curLayer.isEmpty()) {
+            for (StageStats curStageStats : curLayer) {
+                if (i == 0) {
+                    subStageWallTimeNanos.add(new double[runs]);
+                    subStageCpuTimeNanos.add(new double[runs]);
+                }
+                subStageWallTimeNanos.get(idx)[i] = MILLISECONDS.toNanos(curStageStats.getWallTimeMillis());
+                subStageCpuTimeNanos.get(idx)[i] = MILLISECONDS.toNanos(curStageStats.getCpuTimeMillis());
+                idx += 1;
+                nextLayer.addAll(curStageStats.getSubStages());
+            }
+            curLayer.clear();
+            curLayer.addAll(nextLayer);
+            nextLayer.clear();
+        }
     }
 
     public List<String> getSchemas(ClientSession session)

@@ -66,15 +66,15 @@ public class BenchmarkResultsPrinter
                 .add("schema")
                 .add("query")
                 .addAll(tagNames)
-                .add("wallTimeP50")
+//                .add("wallTimeP50")
                 .add("wallTimeMean")
-                .add("wallTimeStd")
-                .add("processCpuTimeP50")
-                .add("processCpuTimeMean")
-                .add("processCpuTimeStd")
-                .add("queryCpuTimeP50")
+//                .add("wallTimeStd")
+//                .add("processCpuTimeP50")
+//                .add("processCpuTimeMean")
+//                .add("processCpuTimeStd")
+//                .add("queryCpuTimeP50")
                 .add("queryCpuTimeMean")
-                .add("queryCpuTimeStd")
+//                .add("queryCpuTimeStd")
                 .add("status")
                 .add("error")
                 .build());
@@ -90,23 +90,33 @@ public class BenchmarkResultsPrinter
         // only print first line of error message
         Optional<String> errorMessage = result.getErrorMessage().map(error -> getFirst(Splitter.on(anyOf("\r\n")).trimResults().split(error), ""));
 
-        printRow(ImmutableList.builder()
-                .add(result.getSuite().getName())
-                .add(benchmarkSchema.getName())
-                .add(result.getBenchmarkQuery().getName())
-                .addAll(tagNames.stream().map(forMap(tags, "")).iterator())
-                .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMedian()))
-                .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMean()))
-                .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getStandardDeviation()))
-                .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getMedian()))
-                .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getMean()))
-                .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getStandardDeviation()))
-                .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMedian()))
-                .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMean()))
-                .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getStandardDeviation()))
-                .add(result.getStatus().toString().toLowerCase(Locale.ENGLISH))
-                .add(errorMessage.orElse(""))
-                .build());
+        ImmutableList.Builder<Object> rowBuilder = ImmutableList.builder();
+        rowBuilder.add(result.getSuite().getName())
+            .add(benchmarkSchema.getName())
+            .add(result.getBenchmarkQuery().getName())
+            .addAll(tagNames.stream().map(forMap(tags, "")).iterator())
+//            .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMedian()))
+            .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMean()))
+//            .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getStandardDeviation()))
+//            .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getMedian()))
+//            .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getMean()))
+//            .add(NANOSECONDS.toMillis((long) result.getProcessCpuTimeNanos().getStandardDeviation()))
+//            .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMedian()))
+                .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMean()));
+//            .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getStandardDeviation()))
+        rowBuilder.add("|");
+        for (Stat subStage : result.getSubStageWallTimeNanos()) {
+            rowBuilder.add(NANOSECONDS.toMillis((long) subStage.getMean()));
+        }
+        rowBuilder.add("|");
+        for (Stat subStage : result.getSubStageCpuTimeNanos()) {
+            rowBuilder.add(NANOSECONDS.toMillis((long) subStage.getMean()));
+        }
+        rowBuilder.add("|");
+        rowBuilder.add(result.getStatus().toString().toLowerCase(Locale.ENGLISH));
+        rowBuilder.add(errorMessage.orElse(""));
+
+        printRow(rowBuilder.build());
     }
 
     @SuppressWarnings("UseOfSystemOutOrSystemErr")
