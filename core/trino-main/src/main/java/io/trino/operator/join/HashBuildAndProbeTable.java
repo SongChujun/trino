@@ -71,7 +71,7 @@ public final class HashBuildAndProbeTable
     // Native array of hashes for faster collisions resolution compared
     // to accessing values in blocks. We use bytes to reduce memory foot print
     // and there is no performance gain from storing full hashes
-    private final byte[] positionToHashes;
+    private byte[] positionToHashes;
     private final JoinStatisticsCounter statisticsCounter;
     private final SettableFuture<Boolean> hashBuildFinishedFuture;
     private int pageCount;
@@ -79,7 +79,7 @@ public final class HashBuildAndProbeTable
     private long pagesMemorySize;
     private long estimatedSize;
     private final List<Type> types;
-    private final AdaptiveJoinPositionLinks positionLinks;
+    private AdaptiveJoinPositionLinks positionLinks;
     private final List<Type> buildOutputTypes;
     private long size;
     private long hashCollisions;
@@ -433,6 +433,17 @@ public final class HashBuildAndProbeTable
     @Override
     public void close()
     {
+        for (List<Block> channel : channels) {
+            channel.clear();
+        }
+        channels.clear();
+        addresses.clear();
+        addresses.trim();
+        positionCounts.clear();
+        positionCounts.trim();
+        positionToHashes = null;
+        positionLinks = null;
+        positionCount = 0;
     }
 
     private class JoinProcessor

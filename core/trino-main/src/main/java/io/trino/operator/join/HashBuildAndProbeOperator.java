@@ -115,11 +115,10 @@ public class HashBuildAndProbeOperator
         return isFinished;
     }
 
-//    @Override
-//    public void close()
-//    {
-////        return;//subject to change
-//    }
+    @Override
+    public void close()
+    {
+    }
 
     public static class HashBuildAndProbeOperatorFactory
             implements OperatorFactory

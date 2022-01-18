@@ -48,6 +48,7 @@ public class HashOuterJoinResultProcessingOperator
     List<BlockTypeOperators.BlockPositionEqual> equalOperators;
     private Page currentPrimaryKeyPage;
     private int currentPrimaryKeyRow;
+    private boolean closed;
 
     public HashOuterJoinResultProcessingOperator(
             OperatorContext operatorContext,
@@ -72,6 +73,7 @@ public class HashOuterJoinResultProcessingOperator
         this.duplicateSet = new HashSet<>(150000);
         this.equalOperators = equalOperators;
         this.currentPrimaryKeyPage = null;
+        closed = false;
     }
 
     @Override
@@ -176,6 +178,17 @@ public class HashOuterJoinResultProcessingOperator
         else {
             return outputPageBuffer.pop();
         }
+    }
+
+    @Override
+    public void close()
+    {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        hashTable.close();
+        outputPageBuffer.clear();
     }
 
     @Override

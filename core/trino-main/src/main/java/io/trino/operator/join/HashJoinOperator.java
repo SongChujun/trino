@@ -85,6 +85,13 @@ public class HashJoinOperator
     }
 
     @Override
+    public void close()
+    {
+        hashTable.close();
+        outputPageBuffer.clear();
+    }
+
+    @Override
     public boolean isFinished()
     {
         return isFinished && outputPageBuffer.isEmpty();
