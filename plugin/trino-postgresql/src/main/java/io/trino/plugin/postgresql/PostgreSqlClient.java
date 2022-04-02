@@ -320,7 +320,7 @@ public class PostgreSqlClient
         // fetch-size is ignored when connection is in auto-commit
         connection.setAutoCommit(false);
         PreparedStatement statement = connection.prepareStatement(sql);
-        statement.setFetchSize(1000);
+        statement.setFetchSize(100000);
         return statement;
     }
 
