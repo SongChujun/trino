@@ -110,7 +110,7 @@ public class PagesSerde
                 inUseTempBuffer = encrypted;
             }
             //  Resulting slice *must* be copied to ensure the shared buffers aren't referenced after method exit
-            return new SerializedPage(Slices.copyOf(slice), markers, page.getPositionCount(), uncompressedSize, page.getSplitIdentifier());
+            return new SerializedPage(Slices.copyOf(slice), markers, page.getPositionCount(), uncompressedSize, page.getSplitIdentifier(true));
         }
         finally {
             context.releaseSliceOutput(serializationBuffer);

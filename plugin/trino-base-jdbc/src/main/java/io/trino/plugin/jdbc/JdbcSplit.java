@@ -59,4 +59,10 @@ public class JdbcSplit
     {
         return this;
     }
+
+    @Override
+    public String getIdentifier()
+    {
+        return additionalPredicate.orElse("");
+    }
 }

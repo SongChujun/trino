@@ -23,5 +23,10 @@ public interface ConnectorSplit
 
     List<HostAddress> getAddresses();
 
+    default String getIdentifier()
+    {
+        return "";
+    }
+
     Object getInfo();
 }

@@ -262,7 +262,8 @@ public class MockRemoteTaskFactory
                             DataSize.ofBytes(0),
                             0,
                             new Duration(0, MILLISECONDS),
-                            INITIAL_DYNAMIC_FILTERS_VERSION),
+                            INITIAL_DYNAMIC_FILTERS_VERSION,
+                            ImmutableMap.of()),
                     DateTime.now(),
                     outputBuffer.getInfo(),
                     ImmutableSet.of(),
@@ -291,7 +292,8 @@ public class MockRemoteTaskFactory
                     stats.getRevocableMemoryReservation(),
                     0,
                     new Duration(0, MILLISECONDS),
-                    INITIAL_DYNAMIC_FILTERS_VERSION);
+                    INITIAL_DYNAMIC_FILTERS_VERSION,
+                    ImmutableMap.of());
         }
 
         private synchronized void updateSplitQueueSpace()

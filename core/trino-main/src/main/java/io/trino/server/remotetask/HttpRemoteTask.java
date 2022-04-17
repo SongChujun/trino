@@ -567,6 +567,11 @@ public final class HttpRemoteTask
         Futures.addCallback(future, new SimpleHttpResponseHandler<>(new UpdateResponseHandler(sources), request.getUri(), stats), executor);
     }
 
+    public PlanFragment getPlanFragment()
+    {
+        return planFragment;
+    }
+
     private synchronized List<TaskSource> getSources()
     {
         return Stream.concat(planFragment.getPartitionedSourceNodes().stream(), planFragment.getRemoteSourceNodes().stream())

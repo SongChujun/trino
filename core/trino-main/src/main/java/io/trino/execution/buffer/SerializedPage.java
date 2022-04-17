@@ -51,17 +51,9 @@ public class SerializedPage
         }
     }
 
-    public int getSplitNumber()
+    public String getIdentifier()
     {
-        if (splitIdentifier.equals("")) {
-            return -1;
-        }
-        int startingIndex = splitIdentifier.length() - 1;
-        while (Character.isDigit(splitIdentifier.charAt(startingIndex))) {
-            startingIndex--;
-        }
-        startingIndex++;
-        return Integer.parseInt(splitIdentifier.substring(startingIndex));
+        return splitIdentifier;
     }
 
     public int getSizeInBytes()

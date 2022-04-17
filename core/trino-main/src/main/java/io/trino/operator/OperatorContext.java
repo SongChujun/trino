@@ -25,6 +25,7 @@ import io.trino.memory.context.AggregatedMemoryContext;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.memory.context.MemoryTrackingContext;
 import io.trino.operator.OperationTimer.OperationTiming;
+import io.trino.operator.OperationTimer.SplitFinishedPageStat;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -34,6 +35,7 @@ import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -74,6 +76,7 @@ public class OperatorContext
     private final CounterStat internalNetworkPositions = new CounterStat();
 
     private final OperationTiming addInputTiming = new OperationTiming();
+    private final SplitFinishedPageStat addInputSplitFinishedStat = new SplitFinishedPageStat();
     private final CounterStat inputDataSize = new CounterStat();
     private final CounterStat inputPositions = new CounterStat();
 
@@ -165,6 +168,20 @@ public class OperatorContext
             inputDataSize.update(page.getSizeInBytes());
             inputPositions.update(page.getPositionCount());
         }
+    }
+
+    public void recordSplitFinishedPageProcessed(Page page)
+    {
+        if (page != null) {
+            if (page.isSplitFinishedPage()) {
+                addInputSplitFinishedStat.recordSplitFinishedPage(page.getSplitIdentifier(false));
+            }
+        }
+    }
+
+    public Map<String, Integer> getAddInputSplitFinishedMap()
+    {
+        return addInputSplitFinishedStat.getSplitFinishedPageMap();
     }
 
     /**

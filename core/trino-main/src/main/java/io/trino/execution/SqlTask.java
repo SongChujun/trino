@@ -14,6 +14,7 @@
 package io.trino.execution;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -43,6 +44,7 @@ import javax.annotation.Nullable;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -288,8 +290,10 @@ public class SqlTask
         long fullGcCount = 0;
         Duration fullGcTime = new Duration(0, MILLISECONDS);
         long dynamicFiltersVersion = INITIAL_DYNAMIC_FILTERS_VERSION;
+        Map<String, Integer> splitFinishedPagesInfo = ImmutableMap.of();
         if (taskHolder.getFinalTaskInfo() != null) {
             TaskInfo taskInfo = taskHolder.getFinalTaskInfo();
+            splitFinishedPagesInfo = taskInfo.getTaskStatus().getSplitFinishedPagesInfo();
             TaskStats taskStats = taskInfo.getStats();
             queuedPartitionedDrivers = taskStats.getQueuedPartitionedDrivers();
             runningPartitionedDrivers = taskStats.getRunningPartitionedDrivers();
@@ -309,6 +313,7 @@ public class SqlTask
                 runningPartitionedDrivers += pipelineStatus.getRunningPartitionedDrivers();
                 physicalWrittenBytes += pipelineContext.getPhysicalWrittenDataSize();
             }
+            splitFinishedPagesInfo = taskContext.getSplitFinishedPagesInfo();
             physicalWrittenDataSize = succinctBytes(physicalWrittenBytes);
             userMemoryReservation = taskContext.getMemoryReservation();
             systemMemoryReservation = taskContext.getSystemMemoryReservation();
@@ -336,7 +341,8 @@ public class SqlTask
                 revocableMemoryReservation,
                 fullGcCount,
                 fullGcTime,
-                dynamicFiltersVersion);
+                dynamicFiltersVersion,
+                splitFinishedPagesInfo);
     }
 
     private TaskStats getTaskStats(TaskHolder taskHolder)

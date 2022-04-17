@@ -23,6 +23,7 @@ import io.trino.spi.Page;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockEncodingSerde;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
 
@@ -69,18 +70,22 @@ public final class PagesSerdeUtil
         output.writeByte(page.getPageCodecMarkers());
         output.writeInt(page.getUncompressedSizeInBytes());
         output.writeInt(page.getSizeInBytes());
-        output.writeInt(page.getSplitNumber());
+        byte[] splitIdentifier = page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8);
+        output.writeInt(splitIdentifier.length);
+        output.writeBytes(splitIdentifier);
         output.writeBytes(page.getSlice());
     }
 
     private static void updateChecksum(XxHash64 hash, SerializedPage page)
     {
+        byte[] splitIdentifier = page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8);
         hash.update(Slices.wrappedIntArray(
                 page.getPositionCount(),
                 page.getPageCodecMarkers(),
                 page.getUncompressedSizeInBytes(),
                 page.getSizeInBytes(),
-                page.getSplitNumber()));
+                splitIdentifier.length));
+        hash.update(page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8));
         hash.update(page.getSlice());
     }
 
@@ -90,9 +95,12 @@ public final class PagesSerdeUtil
         PageCodecMarker.MarkerSet markers = PageCodecMarker.MarkerSet.fromByteValue(sliceInput.readByte());
         int uncompressedSizeInBytes = sliceInput.readInt();
         int sizeInBytes = sliceInput.readInt();
-        int splitNumber = sliceInput.readInt();
+        int bytesLength = sliceInput.readInt();
+        byte[] splitIdentifier = new byte[bytesLength];
+        sliceInput.readBytes(splitIdentifier);
+//        int splitNumber = sliceInput.readBytes();
         Slice slice = sliceInput.readSlice(sizeInBytes);
-        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes, String.valueOf(splitNumber));
+        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes, new String(splitIdentifier, StandardCharsets.UTF_8));
     }
 
     public static long writeSerializedPages(SliceOutput sliceOutput, Iterable<SerializedPage> pages)

@@ -333,6 +333,9 @@ public class SortOperator
             throw new UnsupportedOperationException();
         }
         updateMemoryUsage();
+        if (page.isSplitFinishedPage()) {
+            operatorContext.recordSplitFinishedPageProcessed(page);
+        }
     }
 
     @Override

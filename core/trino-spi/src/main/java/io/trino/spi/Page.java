@@ -78,9 +78,25 @@ public final class Page
         this.splitIdentifier = splitIdentifier;
     }
 
-    public String getSplitIdentifier()
+    public String getSplitIdentifier(boolean includeFinished)
     {
-        return splitIdentifier;
+        // Stripe off the ending finished marker such that pages from the same split have the same identifier
+        if (includeFinished) {
+            return splitIdentifier;
+        }
+        else {
+            if (splitIdentifier.endsWith("_finished")) {
+                return splitIdentifier.substring(0, splitIdentifier.length() - "_finished".length());
+            }
+            else {
+                return splitIdentifier;
+            }
+        }
+    }
+
+    public boolean isSplitFinishedPage()
+    {
+        return splitIdentifier.endsWith("_finished");
     }
 
     public int getChannelCount()

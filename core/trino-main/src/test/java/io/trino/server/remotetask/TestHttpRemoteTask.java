@@ -628,7 +628,8 @@ public class TestHttpRemoteTask
                     initialTaskStatus.getRevocableMemoryReservation(),
                     initialTaskStatus.getFullGcCount(),
                     initialTaskStatus.getFullGcTime(),
-                    dynamicFilterDomains.map(VersionedDynamicFilterDomains::getVersion).orElse(INITIAL_DYNAMIC_FILTERS_VERSION));
+                    dynamicFilterDomains.map(VersionedDynamicFilterDomains::getVersion).orElse(INITIAL_DYNAMIC_FILTERS_VERSION),
+                    ImmutableMap.of());
         }
     }
 }

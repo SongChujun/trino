@@ -66,6 +66,11 @@ public class NodeTaskMap
         return nodeTasks;
     }
 
+    public NodeTasks getNodeTasks(InternalNode node)
+    {
+        return nodeTasksMap.get(node);
+    }
+
     private NodeTasks addNodeTask(InternalNode node)
     {
         NodeTasks newNodeTasks = new NodeTasks(finalizerService);
@@ -76,7 +81,7 @@ public class NodeTaskMap
         return nodeTasks;
     }
 
-    private static class NodeTasks
+    public static class NodeTasks
     {
         private final Set<RemoteTask> remoteTasks = Sets.newConcurrentHashSet();
         private final AtomicInteger nodeTotalPartitionedSplitCount = new AtomicInteger();
@@ -106,6 +111,11 @@ public class NodeTaskMap
                     remoteTasks.remove(task);
                 }
             }
+        }
+
+        public Set<RemoteTask> getRemoteTasks()
+        {
+            return remoteTasks;
         }
 
         public PartitionedSplitCountTracker createPartitionedSplitCountTracker(TaskId taskId)

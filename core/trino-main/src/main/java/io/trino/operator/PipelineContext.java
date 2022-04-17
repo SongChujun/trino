@@ -33,8 +33,10 @@ import org.joda.time.DateTime;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
@@ -320,6 +322,15 @@ public class PipelineContext
     public PipelineStatus getPipelineStatus()
     {
         return getPipelineStatus(drivers.iterator(), totalSplits.get(), completedDrivers.get(), partitioned);
+    }
+
+    public Map<String, Integer> getSplitFinishedPagesInfo()
+    {
+        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        for (DriverContext driverContext : drivers) {
+            driverContext.getSplitFinishedPagesInfo().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
+        }
+        return splitFinishedPagesInfo;
     }
 
     public PipelineStats getPipelineStats()

@@ -51,6 +51,7 @@ import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.StageExecutionPlan;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -195,6 +196,7 @@ public class SqlQueryScheduler
 
         OutputBufferId rootBufferId = Iterables.getOnlyElement(rootOutputBuffers.getBuffers().keySet());
         List<SqlStageExecution> stages = createStages(
+                Optional.empty(),
                 (fragmentId, tasks, noMoreExchangeLocations) -> updateQueryOutputLocations(queryStateMachine, rootBufferId, tasks, noMoreExchangeLocations),
                 new AtomicInteger(),
                 plan.withBucketToPartition(Optional.of(new int[1])),
@@ -280,6 +282,7 @@ public class SqlQueryScheduler
     }
 
     private List<SqlStageExecution> createStages(
+            Optional<SqlStageExecution> parentStage,
             ExchangeLocationsConsumer parent,
             AtomicInteger nextStageId,
             StageExecutionPlan plan,
@@ -311,6 +314,9 @@ public class SqlQueryScheduler
                 failureDetector,
                 dynamicFilterService,
                 schedulerStats);
+        if (parentStage.isPresent() && parentStage.get().getFragment().getRoot() instanceof SortMergeAdaptiveJoinNode) {
+            stage.setEnableDynamicJoinPushDown(true);
+        }
         stages.add(stage);
 
         // function to create child stages recursively by supplying the bucket partitioning (according to parent's partitioning)
@@ -318,6 +324,7 @@ public class SqlQueryScheduler
             ImmutableSet.Builder<SqlStageExecution> childStagesBuilder = ImmutableSet.builder();
             for (StageExecutionPlan subStagePlan : plan.getSubStages()) {
                 List<SqlStageExecution> subTree = createStages(
+                        Optional.of(stage),
                         stage::addExchangeLocations,
                         nextStageId,
                         subStagePlan.withBucketToPartition(bucketToPartition),

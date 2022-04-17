@@ -78,6 +78,7 @@ public final class SqlStageExecution
     private final Executor executor;
     private final FailureDetector failureDetector;
     private final DynamicFilterService dynamicFilterService;
+    private boolean enableDynamicJoinPushDown;
 
     private final Map<PlanFragmentId, RemoteSourceNode> exchangeSources;
 
@@ -188,6 +189,16 @@ public final class SqlStageExecution
     public StageState getState()
     {
         return stateMachine.getState();
+    }
+
+    public boolean getEnableDynamicJoinPushDown()
+    {
+        return enableDynamicJoinPushDown;
+    }
+
+    public void setEnableDynamicJoinPushDown(boolean enableDynamicJoinPushDown)
+    {
+        this.enableDynamicJoinPushDown = enableDynamicJoinPushDown;
     }
 
     /**
@@ -379,6 +390,11 @@ public final class SqlStageExecution
         return tasks.values().stream()
                 .flatMap(Set::stream)
                 .collect(toImmutableList());
+    }
+
+    public NodeTaskMap getNodeTaskMap()
+    {
+        return nodeTaskMap;
     }
 
     public synchronized Optional<RemoteTask> scheduleTask(InternalNode node, int partition, OptionalInt totalPartitions)

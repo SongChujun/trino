@@ -41,6 +41,7 @@ import org.joda.time.DateTime;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
@@ -364,6 +365,15 @@ public class TaskContext
             }
         }
         return stat;
+    }
+
+    public Map<String, Integer> getSplitFinishedPagesInfo()
+    {
+        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        for (PipelineContext pipelineContext : pipelineContexts) {
+            pipelineContext.getSplitFinishedPagesInfo().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
+        }
+        return splitFinishedPagesInfo;
     }
 
     public Duration getFullGcTime()

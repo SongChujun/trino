@@ -28,7 +28,9 @@ import io.trino.operator.OperationTimer.OperationTiming;
 import io.trino.sql.planner.plan.PlanNodeId;
 import org.joda.time.DateTime;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -443,6 +445,15 @@ public class DriverContext
                 outputPositions,
                 succinctBytes(physicalWrittenDataSize),
                 operators);
+    }
+
+    public Map<String, Integer> getSplitFinishedPagesInfo()
+    {
+        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        for (OperatorContext operatorContext : operatorContexts) {
+            operatorContext.getAddInputSplitFinishedMap().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
+        }
+        return splitFinishedPagesInfo;
     }
 
     public <C, R> R accept(QueryContextVisitor<C, R> visitor, C context)

@@ -263,10 +263,10 @@ public class PagesIndex
             return;
         }
 
-        if (!pagesBySplit.containsKey(page.getSplitIdentifier())) {
-            pagesBySplit.put(page.getSplitIdentifier(), new ArrayList<>());
+        if (!pagesBySplit.containsKey(page.getSplitIdentifier(false))) {
+            pagesBySplit.put(page.getSplitIdentifier(false), new ArrayList<>());
         }
-        pagesBySplit.get(page.getSplitIdentifier()).add(pageCount);
+        pagesBySplit.get(page.getSplitIdentifier(false)).add(pageCount);
 
         pageCount++;
         positionCount += page.getPositionCount();

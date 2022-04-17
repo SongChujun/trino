@@ -16,12 +16,14 @@ package io.trino.execution;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -57,6 +59,7 @@ public class TaskStatus
     private final int queuedPartitionedDrivers;
     private final int runningPartitionedDrivers;
     private final boolean outputBufferOverutilized;
+    private final Map<String, Integer> splitFinishedPagesInfo;
     private final DataSize physicalWrittenDataSize;
     private final DataSize memoryReservation;
     private final DataSize systemMemoryReservation;
@@ -88,7 +91,8 @@ public class TaskStatus
             @JsonProperty("revocableMemoryReservation") DataSize revocableMemoryReservation,
             @JsonProperty("fullGcCount") long fullGcCount,
             @JsonProperty("fullGcTime") Duration fullGcTime,
-            @JsonProperty("dynamicFiltersVersion") long dynamicFiltersVersion)
+            @JsonProperty("dynamicFiltersVersion") long dynamicFiltersVersion,
+            @JsonProperty("splitFinishedPagesInfo") Map<String, Integer> splitFinishedPagesInfo)
     {
         this.taskId = requireNonNull(taskId, "taskId is null");
         this.taskInstanceId = requireNonNull(taskInstanceId, "taskInstanceId is null");
@@ -107,6 +111,8 @@ public class TaskStatus
         this.runningPartitionedDrivers = runningPartitionedDrivers;
 
         this.outputBufferOverutilized = outputBufferOverutilized;
+
+        this.splitFinishedPagesInfo = splitFinishedPagesInfo;
 
         this.physicalWrittenDataSize = requireNonNull(physicalWrittenDataSize, "physicalWrittenDataSize is null");
 
@@ -195,6 +201,12 @@ public class TaskStatus
     }
 
     @JsonProperty
+    public Map<String, Integer> getSplitFinishedPagesInfo()
+    {
+        return splitFinishedPagesInfo;
+    }
+
+    @JsonProperty
     public DataSize getMemoryReservation()
     {
         return memoryReservation;
@@ -259,7 +271,8 @@ public class TaskStatus
                 DataSize.ofBytes(0),
                 0,
                 new Duration(0, MILLISECONDS),
-                INITIAL_DYNAMIC_FILTERS_VERSION);
+                INITIAL_DYNAMIC_FILTERS_VERSION,
+                ImmutableMap.of());
     }
 
     public static TaskStatus failWith(TaskStatus taskStatus, TaskState state, List<ExecutionFailureInfo> exceptions)
@@ -282,6 +295,7 @@ public class TaskStatus
                 taskStatus.getRevocableMemoryReservation(),
                 taskStatus.getFullGcCount(),
                 taskStatus.getFullGcTime(),
-                taskStatus.getDynamicFiltersVersion());
+                taskStatus.getDynamicFiltersVersion(),
+                taskStatus.getSplitFinishedPagesInfo());
     }
 }

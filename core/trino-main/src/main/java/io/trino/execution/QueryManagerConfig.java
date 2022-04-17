@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit;
         "query.remote-task.max-consecutive-error-count"})
 public class QueryManagerConfig
 {
-    private int scheduleSplitBatchSize = 1000;
+    private int scheduleSplitBatchSize = 1;
     private int minScheduleSplitBatchSize = 100;
     private int maxConcurrentQueries = 1000;
     private int maxQueuedQueries = 5000;

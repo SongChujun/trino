@@ -408,11 +408,13 @@ public class PartitionedOutputOperator
         public void partitionPage(Page page)
         {
             if (splitIdentifier == null) {
-                splitIdentifier = page.getSplitIdentifier();
+                splitIdentifier = page.getSplitIdentifier(true);
             }
-            if (!splitIdentifier.equals(page.getSplitIdentifier())) {
+            if (!splitIdentifier.equals(page.getSplitIdentifier(true))) {
+                splitIdentifier = page.getSplitIdentifier(true);
+            }
+            if (!splitIdentifierEquals(splitIdentifier, page.getSplitIdentifier(true))) {
                 flush(true);
-                splitIdentifier = page.getSplitIdentifier();
             }
             requireNonNull(page, "page is null");
 
@@ -432,6 +434,19 @@ public class PartitionedOutputOperator
                 }
             }
             flush(false);
+        }
+
+        private boolean splitIdentifierEquals(String currentSplitIdentifier, String inputSplitIdentifier)
+        {
+            String currentSplitIdentifierWithoutSuffix = currentSplitIdentifier;
+            String inputSplitIdentifierWithoutSuffix = inputSplitIdentifier;
+            if (currentSplitIdentifierWithoutSuffix.endsWith("_finished")) {
+                currentSplitIdentifierWithoutSuffix = currentSplitIdentifierWithoutSuffix.substring(0, currentSplitIdentifierWithoutSuffix.length() - "_finished".length());
+            }
+            if (inputSplitIdentifierWithoutSuffix.endsWith("_finished")) {
+                inputSplitIdentifierWithoutSuffix = inputSplitIdentifierWithoutSuffix.substring(0, inputSplitIdentifierWithoutSuffix.length() - "_finished".length());
+            }
+            return currentSplitIdentifierWithoutSuffix.equals(inputSplitIdentifierWithoutSuffix);
         }
 
         private Page getPartitionFunctionArguments(Page page)
