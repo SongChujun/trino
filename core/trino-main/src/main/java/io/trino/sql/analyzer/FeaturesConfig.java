@@ -75,6 +75,7 @@ public class FeaturesConfig
     private ElasticJoinType elasticJoinType = ElasticJoinType.OFFLOAD;
     private double elasticJoinRightPushdownRatio = 0.5;
     private double elasticJoinLeftPushdownRatio = 0.5;
+    private int scheduleSplitBatchSize = 3;
 
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
@@ -323,6 +324,18 @@ public class FeaturesConfig
     public FeaturesConfig setElasticJoinRightPushdownRatio(double elasticJoinRightPushdownRatio)
     {
         this.elasticJoinRightPushdownRatio = elasticJoinRightPushdownRatio;
+        return this;
+    }
+
+    public int getScheduleSplitBatchSize()
+    {
+        return scheduleSplitBatchSize;
+    }
+
+    @Config("schedule-split-batch-size")
+    public FeaturesConfig setScheduleSplitBatchSize(int scheduleSplitBatchSize)
+    {
+        this.scheduleSplitBatchSize = scheduleSplitBatchSize;
         return this;
     }
 

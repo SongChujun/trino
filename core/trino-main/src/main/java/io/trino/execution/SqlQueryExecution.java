@@ -720,7 +720,6 @@ public class SqlQueryExecution
             implements QueryExecutionFactory<QueryExecution>
     {
         private final SplitSchedulerStats schedulerStats;
-        private final int scheduleSplitBatchSize;
         private final Metadata metadata;
         private final TypeOperators typeOperators;
         private final GroupProvider groupProvider;
@@ -769,7 +768,6 @@ public class SqlQueryExecution
         {
             requireNonNull(config, "config is null");
             this.schedulerStats = requireNonNull(schedulerStats, "schedulerStats is null");
-            this.scheduleSplitBatchSize = config.getScheduleSplitBatchSize();
             this.metadata = requireNonNull(metadata, "metadata is null");
             this.typeOperators = requireNonNull(typeOperators, "typeOperators is null");
             this.groupProvider = requireNonNull(groupProvider, "groupProvider is null");
@@ -800,6 +798,7 @@ public class SqlQueryExecution
                 WarningCollector warningCollector)
         {
             String executionPolicyName = SystemSessionProperties.getExecutionPolicy(stateMachine.getSession());
+            int scheduleSplitBatchSize = SystemSessionProperties.getScheduleSplitBatchSize(stateMachine.getSession());
             ExecutionPolicy executionPolicy = executionPolicies.get(executionPolicyName);
             checkArgument(executionPolicy != null, "No execution policy %s", executionPolicyName);
 
