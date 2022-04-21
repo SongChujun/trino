@@ -21,7 +21,6 @@ import io.trino.spi.HostAddress;
 import org.apache.phoenix.mapreduce.PhoenixInputSplit;
 
 import java.util.List;
-import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -36,7 +35,7 @@ public class PhoenixSplit
             @JsonProperty("addresses") List<HostAddress> addresses,
             @JsonProperty("phoenixInputSplit") WrappedPhoenixInputSplit wrappedPhoenixInputSplit)
     {
-        super(Optional.empty());
+        super("");
         this.addresses = requireNonNull(addresses, "addresses is null");
         this.phoenixInputSplit = requireNonNull(wrappedPhoenixInputSplit, "wrappedPhoenixInputSplit is null");
     }

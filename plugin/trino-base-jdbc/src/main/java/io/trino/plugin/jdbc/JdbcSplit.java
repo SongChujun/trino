@@ -20,24 +20,21 @@ import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
 
 import java.util.List;
-import java.util.Optional;
-
-import static java.util.Objects.requireNonNull;
 
 public class JdbcSplit
         implements ConnectorSplit
 {
-    private final Optional<String> additionalPredicate;
+    private final String additionalPredicate;
 
     @JsonCreator
     public JdbcSplit(
-            @JsonProperty("additionalPredicate") Optional<String> additionalPredicate)
+            @JsonProperty("additionalPredicate") String additionalPredicate)
     {
-        this.additionalPredicate = requireNonNull(additionalPredicate, "additionalPredicate is null");
+        this.additionalPredicate = additionalPredicate;
     }
 
     @JsonProperty
-    public Optional<String> getAdditionalPredicate()
+    public String getAdditionalPredicate()
     {
         return additionalPredicate;
     }
@@ -63,6 +60,6 @@ public class JdbcSplit
     @Override
     public String getIdentifier()
     {
-        return additionalPredicate.orElse("");
+        return additionalPredicate;
     }
 }

@@ -29,7 +29,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -58,7 +57,7 @@ public class JdbcRecordCursor
     private final JdbcClient jdbcClient;
     private final Connection connection;
     private final PreparedStatement statement;
-    private final Optional<String> splitIdentifier;
+    private final String splitIdentifier;
     @Nullable
     private ResultSet resultSet;
     private boolean closed;
@@ -260,7 +259,7 @@ public class JdbcRecordCursor
     @Override
     public String getSplitIdentifier()
     {
-        return splitIdentifier.orElse("");
+        return splitIdentifier;
     }
 
     @SuppressWarnings("UnusedDeclaration")

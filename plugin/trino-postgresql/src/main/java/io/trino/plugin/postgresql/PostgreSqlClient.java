@@ -424,7 +424,7 @@ public class PostgreSqlClient
     public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)
     {
         if (!tableHandle.isNamedRelation()) {
-            return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit("")));
         }
         String sql = format("select * from pg_partition_tree('%s')",
                 quoted(tableHandle.getRequiredNamedRelation().getRemoteTableName()));
@@ -440,7 +440,7 @@ public class PostgreSqlClient
                             partitioned = true;
                         }
                         else {
-                            res.add(new JdbcSplit(Optional.of(name)));
+                            res.add(new JdbcSplit(name));
                         }
                     }
                 }
@@ -450,7 +450,7 @@ public class PostgreSqlClient
             throw new TrinoException(JDBC_ERROR, e);
         }
         if (!partitioned) {
-            return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit("")));
         }
         else {
             return new FixedSplitSource((res.build()));

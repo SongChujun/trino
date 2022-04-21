@@ -407,7 +407,7 @@ public abstract class BaseJdbcClient
     @Override
     public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)
     {
-        return new FixedSplitSource(ImmutableList.of(new JdbcSplit(Optional.empty())));
+        return new FixedSplitSource(ImmutableList.of(new JdbcSplit("")));
     }
 
     @Override
@@ -466,7 +466,7 @@ public abstract class BaseJdbcClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.flatMap(JdbcSplit::getAdditionalPredicate)));
+                split.isPresent() ? split.get().getAdditionalPredicate() : ""));
     }
 
     @Override

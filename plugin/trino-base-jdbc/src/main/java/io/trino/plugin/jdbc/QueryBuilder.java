@@ -70,7 +70,7 @@ public class QueryBuilder
             List<JdbcColumnHandle> columns,
             Map<String, String> columnExpressions,
             TupleDomain<ColumnHandle> tupleDomain,
-            Optional<String> additionalPredicate)
+            String additionalPredicate)
     {
         if (!tupleDomain.isNone()) {
             Map<ColumnHandle, Domain> domains = tupleDomain.getDomains().orElseThrow();
@@ -285,18 +285,18 @@ public class QueryBuilder
                 .collect(joining(", "));
     }
 
-    private String getFrom(JdbcRelationHandle baseRelation, Optional<String> additionalPredicate, Consumer<QueryParameter> accumulator)
+    private String getFrom(JdbcRelationHandle baseRelation, String additionalPredicate, Consumer<QueryParameter> accumulator)
     {
         if (baseRelation instanceof JdbcNamedRelationHandle) {
-            if (additionalPredicate.isPresent()) {
+            if (!additionalPredicate.isEmpty()) {
                 RemoteTableName remoteTableName = ((JdbcNamedRelationHandle) baseRelation).getRemoteTableName();
-                RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), additionalPredicate.get());
+                RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), additionalPredicate);
                 return " FROM " + getRelation(partitionedRemoteTableName);
             }
             return " FROM " + getRelation(((JdbcNamedRelationHandle) baseRelation).getRemoteTableName());
         }
         if (baseRelation instanceof JdbcQueryRelationHandle) {
-            if (additionalPredicate.isPresent()) {
+            if (!additionalPredicate.isEmpty()) {
                 throw new IllegalArgumentException("Unsupported additionalPredicate");
             }
             PreparedQuery preparedQuery = ((JdbcQueryRelationHandle) baseRelation).getPreparedQuery();
