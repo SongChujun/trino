@@ -118,6 +118,7 @@ public class PrestoBenchmarkDriver
                 driverOptions.warm,
                 driverOptions.runs,
                 driverOptions.debug,
+                driverOptions.concurrency,
                 driverOptions.maxFailures,
                 Optional.ofNullable(driverOptions.socksProxy))) {
             for (Suite suite : suites) {

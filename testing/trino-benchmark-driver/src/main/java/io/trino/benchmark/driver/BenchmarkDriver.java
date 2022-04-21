@@ -32,6 +32,7 @@ public class BenchmarkDriver
     private final List<BenchmarkQuery> queries;
     private final BenchmarkResultsStore resultsStore;
     private final BenchmarkQueryRunner queryRunner;
+    private final boolean concurrency;
 
     public BenchmarkDriver(
             BenchmarkResultsStore resultsStore,
@@ -40,12 +41,14 @@ public class BenchmarkDriver
             int warm,
             int runs,
             boolean debug,
+            boolean concurrency,
             int maxFailures,
             Optional<HostAndPort> socksProxy)
     {
         this.resultsStore = requireNonNull(resultsStore, "resultsStore is null");
         this.clientSession = requireNonNull(clientSession, "clientSession is null");
         this.queries = ImmutableList.copyOf(requireNonNull(queries, "queries is null"));
+        this.concurrency = concurrency;
 
         queryRunner = new BenchmarkQueryRunner(warm, runs, debug, maxFailures, clientSession.getServer(), socksProxy, clientSession.getPrincipal());
     }
@@ -84,8 +87,8 @@ public class BenchmarkDriver
                         .withCatalog(session.getCatalog())
                         .withSchema(benchmarkSchema.getName())
                         .build();
-                BenchmarkQueryResult result = queryRunner.execute(suite, session, benchmarkQuery);
-
+                BenchmarkQueryResult result;
+                result = queryRunner.execute(suite, session, benchmarkQuery, concurrency);
                 resultsStore.store(benchmarkSchema, result);
             }
         }

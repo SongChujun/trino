@@ -52,19 +52,19 @@ public class BenchmarkDriverOptions
     @Option(names = "--user", paramLabel = "<user>", description = "Username " + DEFAULT_VALUE)
     public String user = System.getProperty("user.name");
 
-    @Option(names = "--catalog", paramLabel = "<catalog>", description = "Default catalog")
+    @Option(names = "--catalog", paramLabel = "<catalog>", defaultValue = "blackhole", description = "Default catalog")
     public String catalog;
 
-    @Option(names = "--schema", paramLabel = "<schema>", description = "Default schema")
+    @Option(names = "--schema", paramLabel = "<schema>", defaultValue = "default", description = "Default schema")
     public String schema;
 
     @Option(names = "--suite", paramLabel = "<suite>", description = "Suite to execute")
     public List<String> suites = new ArrayList<>();
 
-    @Option(names = "--suite-config", paramLabel = "<file>", defaultValue = "suite.json", description = "Suites configuration file " + DEFAULT_VALUE)
+    @Option(names = "--suite-config", paramLabel = "<file>", defaultValue = "/Users/song/Desktop/experiment/small.json", description = "Suites configuration file " + DEFAULT_VALUE)
     public String suiteConfigFile;
 
-    @Option(names = "--sql", paramLabel = "<path>", defaultValue = "sql", description = "Directory containing sql files " + DEFAULT_VALUE)
+    @Option(names = "--sql", paramLabel = "<path>", defaultValue = "/Users/song/Desktop/experiment/sql", description = "Directory containing sql files " + DEFAULT_VALUE)
     public String sqlTemplateDir;
 
     @Option(names = "--query", paramLabel = "<query>", description = "Queries to execute")
@@ -72,6 +72,9 @@ public class BenchmarkDriverOptions
 
     @Option(names = "--debug", description = "Enable debug information")
     public boolean debug;
+
+    @Option(names = "--concurrency", description = "Enable concurrent execution")
+    public boolean concurrency;
 
     @Option(names = "--session", paramLabel = "<session>", description = "Session property (property can be used multiple times; format is key=value)")
     public final List<ClientSessionProperty> sessionProperties = new ArrayList<>();
@@ -82,10 +85,10 @@ public class BenchmarkDriverOptions
     @Option(names = "--runs", paramLabel = "<runs>", defaultValue = "3", description = "Number of times to run each query " + DEFAULT_VALUE)
     public int runs;
 
-    @Option(names = "--warm", paramLabel = "<warm>", defaultValue = "1", description = "Number of times to run each query for a warm-up " + DEFAULT_VALUE)
+    @Option(names = "--warm", paramLabel = "<warm>", defaultValue = "0", description = "Number of times to run each query for a warm-up " + DEFAULT_VALUE)
     public int warm;
 
-    @Option(names = "--max-failures", paramLabel = "<count>", defaultValue = "10", description = "Max number of consecutive failures before benchmark fails " + DEFAULT_VALUE)
+    @Option(names = "--max-failures", paramLabel = "<count>", defaultValue = "3", description = "Max number of consecutive failures before benchmark fails " + DEFAULT_VALUE)
     public int maxFailures;
 
     @Option(names = "--socks", paramLabel = "<proxy>", description = "Socks proxy to use")
