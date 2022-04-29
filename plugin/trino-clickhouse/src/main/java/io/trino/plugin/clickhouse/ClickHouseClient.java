@@ -22,8 +22,12 @@ import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
+import io.trino.plugin.jdbc.JdbcSortItem;
+import io.trino.plugin.jdbc.JdbcSplit;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
+import io.trino.plugin.jdbc.PreparedQuery;
+import io.trino.plugin.jdbc.QueryBuilder;
 import io.trino.plugin.jdbc.RemoteTableName;
 import io.trino.plugin.jdbc.SliceWriteFunction;
 import io.trino.plugin.jdbc.WriteMapping;
@@ -40,7 +44,9 @@ import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.FixedSplitSource;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
@@ -57,6 +63,7 @@ import javax.inject.Inject;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -115,6 +122,7 @@ import static java.lang.Long.reverseBytes;
 import static java.lang.Math.max;
 import static java.lang.String.format;
 import static java.lang.String.join;
+import static java.util.stream.Collectors.joining;
 
 public class ClickHouseClient
         extends BaseJdbcClient
@@ -152,6 +160,81 @@ public class ClickHouseClient
     }
 
     @Override
+    public PreparedStatement getPreparedStatement(Connection connection, String sql)
+            throws SQLException
+    {
+        // fetch-size is ignored when connection is in auto-commit
+        connection.setAutoCommit(false);
+        PreparedStatement statement = connection.prepareStatement(sql);
+        statement.setFetchSize(100000);
+        return statement;
+    }
+
+    @Override
+    protected PreparedQuery prepareQuery(
+            ConnectorSession session,
+            Connection connection,
+            JdbcTableHandle table,
+            Optional<List<List<JdbcColumnHandle>>> groupingSets,
+            List<JdbcColumnHandle> columns,
+            Map<String, String> columnExpressions,
+            Optional<JdbcSplit> split)
+    {
+        return applyQueryTransformations(table, new QueryBuilder(this).prepareQuery(
+                session,
+                connection,
+                table.getRelationHandle(),
+                groupingSets,
+                columns,
+                columnExpressions,
+                table.getConstraint(),
+                split.isPresent() ? split.get().getAdditionalPredicate() : "", QueryBuilder.Datasource.CLICKHOUSE));
+    }
+
+    @Override
+    public ConnectorSplitSource getSplits(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+        if (!tableHandle.isNamedRelation()) {
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit("")));
+        }
+//        String sql = format("select partition, name from system.parts where table = '%s' and database = '%s'",
+//                (tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()), (tableHandle.getRequiredNamedRelation().getSchemaTableName().getSchemaName()));
+
+        String sql = format("select partition, name from system.parts where table = '%s'", (tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()));
+
+        ImmutableList.Builder<JdbcSplit> res = new ImmutableList.Builder<>();
+        ImmutableSet.Builder<String> partitions = new ImmutableSet.Builder<>();
+        boolean partitioned = false;
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+                        String name = resultSet.getString("partition");
+                        if (!partitioned && !name.equals("tuple()")) {
+                            partitioned = true;
+                        }
+                        if (partitioned) {
+                            partitions.add(name);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+        if (!partitioned) {
+            return new FixedSplitSource(ImmutableList.of(new JdbcSplit("")));
+        }
+        else {
+            for (String partition : partitions.build()) {
+                res.add(new JdbcSplit(partition));
+            }
+            return new FixedSplitSource((res.build()));
+        }
+    }
+
+    @Override
     public Optional<JdbcExpression> implementAggregation(ConnectorSession session, AggregateFunction aggregate, Map<String, ColumnHandle> assignments)
     {
         // TODO support complex ConnectorExpressions
@@ -161,6 +244,27 @@ public class ClickHouseClient
     private static Optional<JdbcTypeHandle> toTypeHandle(DecimalType decimalType)
     {
         return Optional.of(new JdbcTypeHandle(Types.DECIMAL, Optional.of("Decimal"), Optional.of(decimalType.getPrecision()), Optional.of(decimalType.getScale()), Optional.empty(), Optional.empty()));
+    }
+
+    @Override
+    public boolean supportsSort(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+    {
+        return true;
+    }
+
+    @Override
+    protected Optional<SortFunction> sortFunction()
+    {
+        return Optional.of((query, sortItems) -> {
+            String orderBy = sortItems.stream()
+                    .map(sortItem -> {
+                        String ordering = sortItem.getSortOrder().isAscending() ? "ASC" : "DESC";
+                        String nullsHandling = sortItem.getSortOrder().isNullsFirst() ? "NULLS FIRST" : "NULLS LAST";
+                        return format("%s %s %s", quoted(sortItem.getColumn().getColumnName()), ordering, nullsHandling);
+                    })
+                    .collect(joining(", "));
+            return format("%s ORDER BY %s", query, orderBy);
+        });
     }
 
     @Override

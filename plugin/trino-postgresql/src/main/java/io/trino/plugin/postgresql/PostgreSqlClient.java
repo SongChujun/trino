@@ -37,6 +37,8 @@ import io.trino.plugin.jdbc.LongWriteFunction;
 import io.trino.plugin.jdbc.ObjectReadFunction;
 import io.trino.plugin.jdbc.ObjectWriteFunction;
 import io.trino.plugin.jdbc.PredicatePushdownController;
+import io.trino.plugin.jdbc.PreparedQuery;
+import io.trino.plugin.jdbc.QueryBuilder;
 import io.trino.plugin.jdbc.ReadFunction;
 import io.trino.plugin.jdbc.SliceReadFunction;
 import io.trino.plugin.jdbc.SliceWriteFunction;
@@ -418,6 +420,27 @@ public class PostgreSqlClient
         catch (SQLException e) {
             throw new TrinoException(JDBC_ERROR, e);
         }
+    }
+
+    @Override
+    protected PreparedQuery prepareQuery(
+            ConnectorSession session,
+            Connection connection,
+            JdbcTableHandle table,
+            Optional<List<List<JdbcColumnHandle>>> groupingSets,
+            List<JdbcColumnHandle> columns,
+            Map<String, String> columnExpressions,
+            Optional<JdbcSplit> split)
+    {
+        return applyQueryTransformations(table, new QueryBuilder(this).prepareQuery(
+                session,
+                connection,
+                table.getRelationHandle(),
+                groupingSets,
+                columns,
+                columnExpressions,
+                table.getConstraint(),
+                split.isPresent() ? split.get().getAdditionalPredicate() : "", QueryBuilder.Datasource.POSTGRESQL));
     }
 
     @Override

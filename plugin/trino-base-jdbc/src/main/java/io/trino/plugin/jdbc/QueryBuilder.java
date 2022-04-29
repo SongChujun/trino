@@ -57,6 +57,12 @@ public class QueryBuilder
 
     private final JdbcClient client;
 
+    public enum Datasource {
+        POSTGRESQL,
+        CLICKHOUSE,
+        OTHER
+    }
+
     public QueryBuilder(JdbcClient client)
     {
         this.client = requireNonNull(client, "client is null");
@@ -70,7 +76,8 @@ public class QueryBuilder
             List<JdbcColumnHandle> columns,
             Map<String, String> columnExpressions,
             TupleDomain<ColumnHandle> tupleDomain,
-            String additionalPredicate)
+            String additionalPredicate,
+            Datasource dataSource)
     {
         if (!tupleDomain.isNone()) {
             Map<ColumnHandle, Domain> domains = tupleDomain.getDomains().orElseThrow();
@@ -84,17 +91,27 @@ public class QueryBuilder
         ImmutableList.Builder<QueryParameter> accumulator = ImmutableList.builder();
 
         String sql = "SELECT " + getProjection(columns, columnExpressions);
-        sql += getFrom(baseRelation, additionalPredicate, accumulator::add);
+        sql += getFrom(baseRelation, additionalPredicate, dataSource, accumulator::add);
 
         List<String> clauses = toConjuncts(session, connection, tupleDomain, accumulator::add);
-//        if (additionalPredicate.isPresent()) {
-//            clauses = ImmutableList.<String>builder()
-//                    .addAll(clauses)
-//                    .add(additionalPredicate.get())
-//                    .build();
-//        }
+        String partitioningPredicate = null;
+        if (!additionalPredicate.isEmpty()) {
+            if (dataSource.equals(Datasource.CLICKHOUSE)) {
+                partitioningPredicate = "_partition_id = '" + additionalPredicate + "'";
+            }
+        }
+        StringBuilder joinCondition = new StringBuilder();
         if (!clauses.isEmpty()) {
-            sql += " WHERE " + Joiner.on(" AND ").join(clauses);
+            joinCondition.append(Joiner.on(" AND ").join(clauses));
+        }
+        if (partitioningPredicate != null) {
+            if (joinCondition.length() > 0) {
+                joinCondition.append(" AND ");
+            }
+            joinCondition.append(partitioningPredicate);
+        }
+        if (joinCondition.length() > 0) {
+            sql += " WHERE " + joinCondition;
         }
 
         sql += getGroupBy(groupingSets);
@@ -285,10 +302,10 @@ public class QueryBuilder
                 .collect(joining(", "));
     }
 
-    private String getFrom(JdbcRelationHandle baseRelation, String additionalPredicate, Consumer<QueryParameter> accumulator)
+    private String getFrom(JdbcRelationHandle baseRelation, String additionalPredicate, Datasource dataSource, Consumer<QueryParameter> accumulator)
     {
         if (baseRelation instanceof JdbcNamedRelationHandle) {
-            if (!additionalPredicate.isEmpty()) {
+            if (!additionalPredicate.isEmpty() && dataSource.equals(Datasource.POSTGRESQL)) {
                 RemoteTableName remoteTableName = ((JdbcNamedRelationHandle) baseRelation).getRemoteTableName();
                 RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), additionalPredicate);
                 return " FROM " + getRelation(partitionedRemoteTableName);
