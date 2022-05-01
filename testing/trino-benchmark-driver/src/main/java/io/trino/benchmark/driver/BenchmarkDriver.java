@@ -57,6 +57,7 @@ public class BenchmarkDriver
     {
         // select queries to run
         List<BenchmarkQuery> queries = suite.selectQueries(this.queries);
+        Optional<BenchmarkQuery> dynamicQuery = suite.selectDynamicQuery(this.queries);
         if (queries.isEmpty()) {
             return;
         }
@@ -88,7 +89,11 @@ public class BenchmarkDriver
                         .withSchema(benchmarkSchema.getName())
                         .build();
                 BenchmarkQueryResult result;
-                result = queryRunner.execute(suite, session, benchmarkQuery, concurrency);
+                if (dynamicQuery.isPresent()) {
+                    result = queryRunner.execute(suite, session, benchmarkQuery, dynamicQuery, true);
+                    resultsStore.store(benchmarkSchema, result);
+                }
+                result = queryRunner.execute(suite, session, benchmarkQuery, dynamicQuery, false);
                 resultsStore.store(benchmarkSchema, result);
             }
         }

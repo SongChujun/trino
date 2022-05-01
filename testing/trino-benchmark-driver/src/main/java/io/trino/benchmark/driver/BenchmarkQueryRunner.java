@@ -34,7 +34,9 @@ import okhttp3.OkHttpClient;
 import java.io.Closeable;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -71,7 +73,6 @@ public class BenchmarkQueryRunner
     private final boolean debug;
     private final int maxFailures;
     private final String user;
-
     private final HttpClient httpClient;
     private final OkHttpClient okHttpClient;
     private final List<URI> nodes;
@@ -111,7 +112,7 @@ public class BenchmarkQueryRunner
     }
 
     @SuppressWarnings("AssignmentToForLoopParameter")
-    public BenchmarkQueryResult execute(Suite suite, ClientSession session, BenchmarkQuery query, boolean concurrency)
+    public BenchmarkQueryResult execute(Suite suite, ClientSession session, BenchmarkQuery query, Optional<BenchmarkQuery> dynamicQuery, boolean dynamic)
     {
         failures = 0;
         for (int i = 0; i < warm; ) {
@@ -127,6 +128,21 @@ public class BenchmarkQueryRunner
                 handleFailure(e);
             }
         }
+        if (dynamicQuery.isPresent()) {
+            for (int i = 0; i < warm; ) {
+                try {
+                    execute(getDynamicSession(session, suite, dynamic), dynamicQuery.get().getName(), dynamicQuery.get().getSql());
+                    i++;
+                    failures = 0;
+                }
+                catch (BenchmarkDriverExecutionException e) {
+                    return failResult(suite, dynamicQuery.get(), e.getCause().getMessage());
+                }
+                catch (Exception e) {
+                    handleFailure(e);
+                }
+            }
+        }
 
         double[] wallTimeNanos = new double[runs];
         double[] processCpuTimeNanos = new double[runs];
@@ -137,7 +153,7 @@ public class BenchmarkQueryRunner
         List<Stat> subStageWallTimeNanosStatList = new ArrayList<>();
         List<Stat> subStageCpuTimeNanosStatList = new ArrayList<>();
 
-        if (!concurrency) {
+        if (dynamicQuery.isEmpty()) {
             for (int i = 0; i < runs; ) {
                 try {
                     long startCpuTime = getTotalCpuTime();
@@ -170,6 +186,14 @@ public class BenchmarkQueryRunner
             for (double[] subStageStat : subStageCpuTimeNanos) {
                 subStageCpuTimeNanosStatList.add(new Stat(subStageStat));
             }
+            return passResult(
+                    suite,
+                    query,
+                    new Stat(wallTimeNanos),
+                    new Stat(processCpuTimeNanos),
+                    new Stat(queryCpuTimeNanos),
+                    subStageWallTimeNanosStatList,
+                    subStageCpuTimeNanosStatList);
         }
         else {
             List<QueryExecutionTask> taskList = new ArrayList<>();
@@ -177,6 +201,9 @@ public class BenchmarkQueryRunner
                 QueryExecutionTask task = new QueryExecutionTask(this, query, session);
                 taskList.add(task);
             }
+
+            taskList.add(new QueryExecutionTask(this, dynamicQuery.get(), getDynamicSession(session, suite, dynamic)));
+
             List<Future<StatementStats>> resultList = null;
             List<StatementStats> queryStatements = new ArrayList<>();
 
@@ -195,18 +222,41 @@ public class BenchmarkQueryRunner
                     e.printStackTrace();
                 }
             }
+            StatementStats dynamicQueryExecutionResult = queryStatements.remove(queryStatements.size() - 1);
             wallTimeNanos = queryStatements.stream().map(StatementStats::getElapsedTimeMillis).map(MILLISECONDS::toNanos).mapToDouble(Double::valueOf).toArray();
             queryCpuTimeNanos = queryStatements.stream().map(StatementStats::getCpuTimeMillis).map(MILLISECONDS::toNanos).mapToDouble(Double::valueOf).toArray();
-        }
 
-        return passResult(
-                suite,
-                query,
-                new Stat(wallTimeNanos),
-                new Stat(processCpuTimeNanos),
-                new Stat(queryCpuTimeNanos),
-                subStageWallTimeNanosStatList,
-                subStageCpuTimeNanosStatList);
+            double[] dynamicCpuTimeNanos = {MILLISECONDS.toNanos(dynamicQueryExecutionResult.getElapsedTimeMillis())};
+            double[] dynamicWallTimeNanos = {MILLISECONDS.toNanos(dynamicQueryExecutionResult.getWallTimeMillis())};
+
+            return passResult(
+                    suite,
+                    query,
+                    dynamicQuery.get(),
+                    new Stat(wallTimeNanos),
+                    new Stat(processCpuTimeNanos),
+                    new Stat(queryCpuTimeNanos),
+                    new Stat(dynamicWallTimeNanos),
+                    new Stat(dynamicCpuTimeNanos),
+                    subStageWallTimeNanosStatList,
+                    subStageCpuTimeNanosStatList);
+        }
+    }
+
+    private ClientSession getDynamicSession(ClientSession session, Suite suite, boolean dynamic)
+    {
+        Map<String, String> properties = new HashMap<>();
+        properties.putAll(session.getProperties());
+        properties.putAll(suite.getSessionProperties());
+        if (dynamic) {
+            properties.put("elastic_join_type", "DYNAMIC");
+        }
+        else {
+            properties.put("elastic_join_type", "NONE");
+        }
+        return ClientSession.builder(session)
+                .withProperties(properties)
+                .build();
     }
 
     private static class QueryExecutionTask

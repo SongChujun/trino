@@ -61,7 +61,7 @@ public class BenchmarkDriverOptions
     @Option(names = "--suite", paramLabel = "<suite>", description = "Suite to execute")
     public List<String> suites = new ArrayList<>();
 
-    @Option(names = "--suite-config", paramLabel = "<file>", defaultValue = "/Users/song/Desktop/experiment/small.json", description = "Suites configuration file " + DEFAULT_VALUE)
+    @Option(names = "--suite-config", paramLabel = "<file>", defaultValue = "/Users/song/Desktop/experiment/test.json", description = "Suites configuration file " + DEFAULT_VALUE)
     public String suiteConfigFile;
 
     @Option(names = "--sql", paramLabel = "<path>", defaultValue = "/Users/song/Desktop/experiment/sql", description = "Directory containing sql files " + DEFAULT_VALUE)
@@ -70,10 +70,10 @@ public class BenchmarkDriverOptions
     @Option(names = "--query", paramLabel = "<query>", description = "Queries to execute")
     public List<String> queries = new ArrayList<>();
 
-    @Option(names = "--debug", description = "Enable debug information")
+    @Option(names = "--debug", defaultValue = "true", description = "Enable debug information")
     public boolean debug;
 
-    @Option(names = "--concurrency", description = "Enable concurrent execution")
+    @Option(names = "--concurrency", defaultValue = "true", description = "Enable concurrent execution")
     public boolean concurrency;
 
     @Option(names = "--session", paramLabel = "<session>", description = "Session property (property can be used multiple times; format is key=value)")
@@ -85,7 +85,7 @@ public class BenchmarkDriverOptions
     @Option(names = "--runs", paramLabel = "<runs>", defaultValue = "3", description = "Number of times to run each query " + DEFAULT_VALUE)
     public int runs;
 
-    @Option(names = "--warm", paramLabel = "<warm>", defaultValue = "0", description = "Number of times to run each query for a warm-up " + DEFAULT_VALUE)
+    @Option(names = "--warm", paramLabel = "<warm>", defaultValue = "1", description = "Number of times to run each query for a warm-up " + DEFAULT_VALUE)
     public int warm;
 
     @Option(names = "--max-failures", paramLabel = "<count>", defaultValue = "3", description = "Max number of consecutive failures before benchmark fails " + DEFAULT_VALUE)

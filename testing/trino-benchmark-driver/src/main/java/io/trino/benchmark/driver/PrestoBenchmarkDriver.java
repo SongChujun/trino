@@ -97,12 +97,18 @@ public class PrestoBenchmarkDriver
                     .map(suite -> suite.selectQueries(allQueries))
                     .flatMap(List::stream)
                     .collect(Collectors.toSet());
+            queries.addAll(suites.stream()
+                    .map(suite -> suite.selectDynamicQuery(allQueries)).filter(Optional::isPresent).map(Optional::get)
+                    .collect(Collectors.toSet()));
         }
         else {
             queries = driverOptions.queries.stream()
                     .map(Pattern::compile)
                     .flatMap(pattern -> allQueries.stream().filter(query -> pattern.matcher(query.getName()).matches()))
                     .collect(Collectors.toSet());
+            queries.addAll(suites.stream()
+                    .map(suite -> suite.selectDynamicQuery(allQueries)).filter(Optional::isPresent).map(Optional::get)
+                    .collect(Collectors.toSet()));
         }
 
         // create results store

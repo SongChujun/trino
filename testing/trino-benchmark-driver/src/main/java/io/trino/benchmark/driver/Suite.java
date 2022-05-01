@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,12 +42,15 @@ public class Suite
     private final List<RegexTemplate> schemaNameTemplates;
     private final List<Pattern> queryNamePatterns;
 
-    public Suite(String name, Map<String, String> sessionProperties, Iterable<RegexTemplate> schemaNameTemplates, Iterable<Pattern> queryNamePatterns)
+    private final Optional<Pattern> dynamicQueryNamePattern;
+
+    public Suite(String name, Map<String, String> sessionProperties, Iterable<RegexTemplate> schemaNameTemplates, Iterable<Pattern> queryNamePatterns, Optional<Pattern> dynamicQueryNamePattern)
     {
         this.name = requireNonNull(name, "name is null");
         this.sessionProperties = sessionProperties == null ? ImmutableMap.of() : ImmutableMap.copyOf(sessionProperties);
         this.schemaNameTemplates = ImmutableList.copyOf(requireNonNull(schemaNameTemplates, "schemaNameTemplates is null"));
         this.queryNamePatterns = ImmutableList.copyOf(requireNonNull(queryNamePatterns, "queryNamePatterns is null"));
+        this.dynamicQueryNamePattern = dynamicQueryNamePattern;
     }
 
     public String getName()
@@ -67,6 +71,11 @@ public class Suite
     public List<Pattern> getQueryNamePatterns()
     {
         return queryNamePatterns;
+    }
+
+    public Optional<Pattern> getDynamicQueryNamePattern()
+    {
+        return dynamicQueryNamePattern;
     }
 
     public List<BenchmarkSchema> selectSchemas(Iterable<String> schemas)
@@ -100,6 +109,19 @@ public class Suite
         return filteredQueries;
     }
 
+    public Optional<BenchmarkQuery> selectDynamicQuery(Iterable<BenchmarkQuery> queries)
+    {
+        if (getDynamicQueryNamePattern().isEmpty()) {
+            return Optional.empty();
+        }
+
+        List<BenchmarkQuery> filteredQueries = stream(queries)
+                .filter(query -> getDynamicQueryNamePattern().get().matcher(query.getName()).matches())
+                .collect(toImmutableList());
+
+        return Optional.of(Iterables.getOnlyElement(filteredQueries));
+    }
+
     @Override
     public String toString()
     {
@@ -130,15 +152,19 @@ public class Suite
         private final Map<String, String> session;
         private final List<String> query;
 
+        private final String dynamicQuery;
+
         @JsonCreator
         public OptionsJson(
                 @JsonProperty("schema") List<String> schema,
                 @JsonProperty("session") Map<String, String> session,
-                @JsonProperty("query") List<String> query)
+                @JsonProperty("query") List<String> query,
+                @JsonProperty("dynamicQuery") String dynamicQuery)
         {
             this.schema = ImmutableList.copyOf(requireNonNull(schema, "schema is null"));
             this.session = ImmutableMap.copyOf(requireNonNull(session, "session is null"));
             this.query = requireNonNull(query, "query is null");
+            this.dynamicQuery = dynamicQuery;
         }
 
         public Suite toSuite(String name)
@@ -151,7 +177,7 @@ public class Suite
             for (String s : schema) {
                 schemaNameTemplates.add(new RegexTemplate(s));
             }
-            return new Suite(name, session, schemaNameTemplates.build(), queryNameTemplates.build());
+            return new Suite(name, session, schemaNameTemplates.build(), queryNameTemplates.build(), dynamicQuery == null ? Optional.empty() : Optional.of(Pattern.compile(dynamicQuery)));
         }
     }
 }

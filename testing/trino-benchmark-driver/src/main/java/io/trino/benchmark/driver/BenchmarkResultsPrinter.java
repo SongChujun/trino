@@ -93,8 +93,11 @@ public class BenchmarkResultsPrinter
         ImmutableList.Builder<Object> rowBuilder = ImmutableList.builder();
         rowBuilder.add(result.getSuite().getName())
             .add(benchmarkSchema.getName())
-            .add(result.getBenchmarkQuery().getName())
-            .addAll(tagNames.stream().map(forMap(tags, "")).iterator())
+                .add(result.getBenchmarkQuery().getName());
+        if (result.getDynamicQuery().isPresent()) {
+            rowBuilder.add(result.getDynamicQuery().get().getName());
+        }
+        rowBuilder.addAll(tagNames.stream().map(forMap(tags, "")).iterator())
 //            .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMedian()))
             .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getMean()))
 //            .add(NANOSECONDS.toMillis((long) result.getWallTimeNanos().getStandardDeviation()))
@@ -104,6 +107,11 @@ public class BenchmarkResultsPrinter
 //            .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMedian()))
                 .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getMean()));
 //            .add(NANOSECONDS.toMillis((long) result.getQueryCpuTimeNanos().getStandardDeviation()))
+        if (result.getDynamicQueryCPUTimeNanos().isPresent()) {
+            rowBuilder.add("|");
+            rowBuilder.add(NANOSECONDS.toMillis((long) result.getDynamicQueryWallTimeNanos().get().getMean()));
+            rowBuilder.add(NANOSECONDS.toMillis((long) result.getDynamicQueryCPUTimeNanos().get().getMean()));
+        }
         rowBuilder.add("|");
         for (Stat subStage : result.getSubStageWallTimeNanos()) {
             rowBuilder.add(NANOSECONDS.toMillis((long) subStage.getMean()));
