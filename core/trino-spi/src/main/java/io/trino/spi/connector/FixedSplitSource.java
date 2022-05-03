@@ -25,7 +25,7 @@ import static java.util.stream.StreamSupport.stream;
 public class FixedSplitSource
         implements ConnectorSplitSource
 {
-    private final List<ConnectorSplit> splits;
+    private List<ConnectorSplit> splits;
     private int offset;
 
     public FixedSplitSource(Iterable<? extends ConnectorSplit> splits)
@@ -54,6 +54,14 @@ public class FixedSplitSource
     public boolean isFinished()
     {
         return offset >= splits.size();
+    }
+
+    public FixedSplitSource split(double fraction)
+    {
+        int splitSize = (int) (splits.size() * fraction);
+        FixedSplitSource result = new FixedSplitSource(List.copyOf(splits.subList(0, splitSize)));
+        this.splits = List.copyOf(splits.subList(splitSize, splits.size()));
+        return result;
     }
 
     @Override

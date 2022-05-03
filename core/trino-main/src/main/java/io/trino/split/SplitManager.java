@@ -25,6 +25,7 @@ import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableLayoutHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.FixedSplitSource;
 
 import javax.inject.Inject;
 
@@ -44,6 +45,16 @@ public class SplitManager
     private final int minScheduleSplitBatchSize;
     private Map<TableHandle, TableHandle> colocateTableHandle;
     private Map<TableHandle, ConnectorSplitSource> colocateSplitSource;
+
+    private Optional<Double> pushDownRatio = Optional.empty();
+
+    private SplitAssignmentPolicy splitAssignmentPolicy = SplitAssignmentPolicy.NONE;
+
+    public enum SplitAssignmentPolicy {
+        NONE,
+        STATIC,
+        DYNAMIC
+    }
 
     // NOTE: This only used for filling in the table layout if none is present by the time we
     // get splits. DO NOT USE IT FOR ANY OTHER PURPOSE, as it will be removed once table layouts
@@ -91,7 +102,21 @@ public class SplitManager
         else {
             if (colocateTableHandle.containsKey(table) && colocateSplitSource.containsKey(colocateTableHandle.get(table))) {
                 TableHandle otherTableHandle = colocateTableHandle.get(table);
-                source = colocateSplitSource.get(otherTableHandle);
+                if (splitAssignmentPolicy.equals(SplitAssignmentPolicy.DYNAMIC)) {
+                    source = colocateSplitSource.get(otherTableHandle);
+                }
+                else if (splitAssignmentPolicy.equals(SplitAssignmentPolicy.STATIC)) {
+                    source = colocateSplitSource.get(otherTableHandle);
+                    if (source instanceof FixedSplitSource) {
+                        source = ((FixedSplitSource) source).split(pushDownRatio.get());
+                    }
+                    else {
+                        throw new UnsupportedOperationException();
+                    }
+                }
+                else {
+                    throw new IllegalStateException();
+                }
                 colocateTableHandle.remove(table);
                 colocateTableHandle.remove(otherTableHandle);
                 colocateSplitSource.remove(otherTableHandle);
@@ -127,6 +152,27 @@ public class SplitManager
     {
         this.colocateTableHandle.put(th1, th2);
         this.colocateTableHandle.put(th2, th1);
+    }
+
+    public void setPushDownRatio(double pushDownRatio)
+    {
+        this.pushDownRatio = Optional.of(clipRatio(pushDownRatio));
+    }
+
+    public void setSplitAssignmentPolicy(SplitAssignmentPolicy splitAssignmentPolicy)
+    {
+        this.splitAssignmentPolicy = splitAssignmentPolicy;
+    }
+
+    private double clipRatio(double pushDownRatio)
+    {
+        if (pushDownRatio < 0) {
+            return 0;
+        }
+        else if (pushDownRatio > 1) {
+            return 1;
+        }
+        return pushDownRatio;
     }
 
     public void replaceTableHandle(TableHandle oldTableHandle, TableHandle newTableHandle)

@@ -183,7 +183,9 @@ public class FeaturesConfig
         OUTER,
         OFFLOAD,
         UNION,
-        DYNAMIC
+        DYNAMIC,
+
+        STATIC_MULTIPLE_SPLITS
     }
 
     public enum DataIntegrityVerification

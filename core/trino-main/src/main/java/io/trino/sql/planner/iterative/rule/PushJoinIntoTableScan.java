@@ -202,7 +202,7 @@ public class PushJoinIntoTableScan
             return Result.ofPlanNode(offLoadSortMergeNode);
         }
 
-        if (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC) {
+        if (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC || elasticJoinType == FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS) {
             List<JoinNode.EquiJoinClause> clauses = joinNode.getCriteria();
 
             List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
@@ -220,6 +220,10 @@ public class PushJoinIntoTableScan
             PlanNode rightDown = new SortNode(context.getIdAllocator().getNextId(), right, rightOrderingScheme, false);
             splitManager.registerColocateTableHandle(left.getTable(), left.getTable());
             splitManager.registerColocateTableHandle(right.getTable(), right.getTable());
+            if (elasticJoinType.equals(FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS)) {
+                splitManager.setPushDownRatio(getElasticJoinLeftPushdownRatio(context.getSession()));
+                splitManager.setSplitAssignmentPolicy(SplitManager.SplitAssignmentPolicy.STATIC);
+            }
             PlanNode offLoadSortMergeNode = new SortMergeAdaptiveJoinNode(
                     context.getIdAllocator().getNextId(),
                     joinNode.getType(),

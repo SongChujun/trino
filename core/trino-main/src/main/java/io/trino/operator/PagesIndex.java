@@ -541,10 +541,13 @@ public class PagesIndex
                 }
             }
             List<Integer> batchStartingPositions = new ArrayList<>();
+
             if (batchEndingPosition.size() >= 2) {
                 batchStartingPositions.addAll(batchEndingPosition.subList(0, batchEndingPosition.size() - 1));
             }
-            batchStartingPositions.add(0, 0);
+            if (batchEndingPosition.size() > 0) {
+                batchStartingPositions.add(0, 0);
+            }
 
             for (int i = 0; i < batchStartingPositions.size(); i++) {
                 int[] currentGroupIdxs = new int[batchEndingPosition.get(i) - batchStartingPositions.get(i)];
