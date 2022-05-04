@@ -224,6 +224,9 @@ public class PushJoinIntoTableScan
                 splitManager.setPushDownRatio(getElasticJoinLeftPushdownRatio(context.getSession()));
                 splitManager.setSplitAssignmentPolicy(SplitManager.SplitAssignmentPolicy.STATIC);
             }
+            else {
+                splitManager.setSplitAssignmentPolicy(SplitManager.SplitAssignmentPolicy.DYNAMIC);
+            }
             PlanNode offLoadSortMergeNode = new SortMergeAdaptiveJoinNode(
                     context.getIdAllocator().getNextId(),
                     joinNode.getType(),
