@@ -28,6 +28,7 @@ import io.trino.execution.TaskId;
 import io.trino.memory.QueryContextVisitor;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.memory.context.MemoryTrackingContext;
+import io.trino.spi.Page;
 import org.joda.time.DateTime;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -324,9 +325,9 @@ public class PipelineContext
         return getPipelineStatus(drivers.iterator(), totalSplits.get(), completedDrivers.get(), partitioned);
     }
 
-    public Map<String, Integer> getSplitFinishedPagesInfo()
+    public Map<Page.SplitIdentifier, Integer> getSplitFinishedPagesInfo()
     {
-        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo = new HashMap<>();
         for (DriverContext driverContext : drivers) {
             driverContext.getSplitFinishedPagesInfo().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
         }

@@ -14,6 +14,7 @@
 package io.trino.operator;
 
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.Session;
@@ -291,6 +292,8 @@ public class ScanFilterAndProjectOperator
     private class RecordCursorToPages
             implements WorkProcessor.Process<Page>
     {
+        private final Logger log = Logger.get(RecordCursorToPages.class);
+
         final Session session;
         final DriverYieldSignal yieldSignal;
         final CursorProcessor cursorProcessor;
@@ -336,11 +339,15 @@ public class ScanFilterAndProjectOperator
             if (pageBuilder.isFull() || (finished && !pageBuilder.isEmpty())) {
                 // only return a page if buffer is full or cursor has finished
                 Page page = pageBuilder.build();
-                String splitIdentifier = cursor.getSplitIdentifier();
+                String[] splitIdentifiers = cursor.getSplitIdentifier().split("_");
+                String tableName = splitIdentifiers[0];
+                String splitIdentifier = splitIdentifiers[1];
+                boolean isFinished = false;
                 if (finished) {
-                    splitIdentifier += "_finished";
+                    isFinished = true;
+                    log.info("read split finished: " + splitIdentifiers[0] + "_" + splitIdentifiers[1]);
                 }
-                page.setSplitIdentifier(splitIdentifier);
+                page.setSplitIdentifier(splitIdentifier, tableName, isFinished);
                 pageBuilder.reset();
                 outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
                 return ProcessState.ofResult(page);

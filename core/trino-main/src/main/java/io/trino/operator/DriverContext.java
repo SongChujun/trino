@@ -25,6 +25,7 @@ import io.trino.execution.TaskId;
 import io.trino.memory.QueryContextVisitor;
 import io.trino.memory.context.MemoryTrackingContext;
 import io.trino.operator.OperationTimer.OperationTiming;
+import io.trino.spi.Page;
 import io.trino.sql.planner.plan.PlanNodeId;
 import org.joda.time.DateTime;
 
@@ -447,9 +448,9 @@ public class DriverContext
                 operators);
     }
 
-    public Map<String, Integer> getSplitFinishedPagesInfo()
+    public Map<Page.SplitIdentifier, Integer> getSplitFinishedPagesInfo()
     {
-        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo = new HashMap<>();
         for (OperatorContext operatorContext : operatorContexts) {
             operatorContext.getAddInputSplitFinishedMap().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
         }

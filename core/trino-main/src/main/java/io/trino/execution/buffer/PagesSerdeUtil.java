@@ -26,6 +26,7 @@ import io.trino.spi.block.BlockEncodingSerde;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 
 import static io.trino.block.BlockSerdeUtil.readBlock;
 import static io.trino.block.BlockSerdeUtil.writeBlock;
@@ -51,7 +52,7 @@ public final class PagesSerdeUtil
         }
     }
 
-    static Page readRawPage(int positionCount, SliceInput input, BlockEncodingSerde blockEncodingSerde, String splitIdentifier)
+    static Page readRawPage(int positionCount, SliceInput input, BlockEncodingSerde blockEncodingSerde, Optional<Page.SplitIdentifier> splitIdentifier)
     {
         int numberOfBlocks = input.readInt();
         Block[] blocks = new Block[numberOfBlocks];
@@ -70,7 +71,7 @@ public final class PagesSerdeUtil
         output.writeByte(page.getPageCodecMarkers());
         output.writeInt(page.getUncompressedSizeInBytes());
         output.writeInt(page.getSizeInBytes());
-        byte[] splitIdentifier = page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8);
+        byte[] splitIdentifier = page.getSplitIdentifier().isPresent() ? page.getSplitIdentifier().get().serialize().getBytes(StandardCharsets.UTF_8) : new byte[0];
         output.writeInt(splitIdentifier.length);
         output.writeBytes(splitIdentifier);
         output.writeBytes(page.getSlice());
@@ -78,14 +79,14 @@ public final class PagesSerdeUtil
 
     private static void updateChecksum(XxHash64 hash, SerializedPage page)
     {
-        byte[] splitIdentifier = page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8);
+        byte[] splitIdentifier = page.getSplitIdentifier().isPresent() ? page.getSplitIdentifier().get().serialize().getBytes(StandardCharsets.UTF_8) : new byte[0];
         hash.update(Slices.wrappedIntArray(
                 page.getPositionCount(),
                 page.getPageCodecMarkers(),
                 page.getUncompressedSizeInBytes(),
                 page.getSizeInBytes(),
                 splitIdentifier.length));
-        hash.update(page.getSplitIdentifier().getBytes(StandardCharsets.UTF_8));
+        hash.update(splitIdentifier);
         hash.update(page.getSlice());
     }
 
@@ -100,7 +101,7 @@ public final class PagesSerdeUtil
         sliceInput.readBytes(splitIdentifier);
 //        int splitNumber = sliceInput.readBytes();
         Slice slice = sliceInput.readSlice(sizeInBytes);
-        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes, new String(splitIdentifier, StandardCharsets.UTF_8));
+        return new SerializedPage(slice, markers, positionCount, uncompressedSizeInBytes, splitIdentifier.length > 0 ? Optional.of(Page.SplitIdentifier.deserialize(new String(splitIdentifier, StandardCharsets.UTF_8))) : Optional.empty());
     }
 
     public static long writeSerializedPages(SliceOutput sliceOutput, Iterable<SerializedPage> pages)

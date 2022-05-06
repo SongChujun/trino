@@ -13,16 +13,26 @@
  */
 package io.trino.spi;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.KeyDeserializer;
+import com.fasterxml.jackson.databind.SerializerProvider;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.DictionaryBlock;
 import io.trino.spi.block.DictionaryId;
 import org.openjdk.jol.info.ClassLayout;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 import static io.airlift.slice.SizeOf.sizeOf;
 import static io.trino.spi.block.DictionaryId.randomDictionaryId;
@@ -32,6 +42,113 @@ import static java.util.Objects.requireNonNull;
 
 public final class Page
 {
+    public static class SplitIdentifier
+    {
+        private final String id;
+
+        private final String tableName;
+
+        private final boolean isFinishedPage;
+
+        @JsonCreator
+        public SplitIdentifier(
+                @JsonProperty("id") String id,
+                @JsonProperty("tableName") String tableName,
+                @JsonProperty("isFinishedPage") boolean isFinishedPage)
+        {
+            this.id = id;
+            this.tableName = tableName;
+            this.isFinishedPage = isFinishedPage;
+        }
+
+        @JsonProperty("id")
+        public String getId()
+        {
+            return id;
+        }
+
+        @JsonProperty("tableName")
+        public String getTableName()
+        {
+            return tableName;
+        }
+
+        @JsonProperty("isFinishedPage")
+        public boolean getIsFinishedPage()
+        {
+            return isFinishedPage;
+        }
+
+        public static SplitIdentifier deserialize(String serialized)
+        {
+            String[] split = serialized.split(",");
+            return new SplitIdentifier(split[0], split[1], Boolean.parseBoolean(split[2]));
+        }
+
+        public String serialize()
+        {
+            return format("%s,%s,%s", id, tableName, isFinishedPage);
+        }
+
+        public boolean equalsIgnoringFinished(SplitIdentifier other)
+        {
+            return Objects.equals(this.id, other.id) &&
+                    Objects.equals(this.tableName, other.tableName);
+        }
+
+        @Override
+        public boolean equals(Object obj)
+        {
+            if (this == obj) {
+                return true;
+            }
+            if ((obj == null) || (getClass() != obj.getClass())) {
+                return false;
+            }
+            SplitIdentifier o = (SplitIdentifier) obj;
+            return Objects.equals(this.id, o.id) &&
+                    Objects.equals(this.tableName, o.tableName) &&
+                    Objects.equals(this.isFinishedPage, o.isFinishedPage);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(id, tableName, isFinishedPage);
+        }
+    }
+
+    public static class SplitIdentifierDeserializer
+            extends KeyDeserializer
+    {
+        @Override
+        public SplitIdentifier deserializeKey(String key, DeserializationContext ctxt)
+        {
+            return deserialize(requireNonNull(key, "key is null"));
+        }
+
+        static SplitIdentifier deserialize(String value)
+        {
+            return SplitIdentifier.deserialize(value);
+        }
+    }
+
+    public static class SplitIdentifierSerializer
+            extends JsonSerializer<SplitIdentifier>
+    {
+        @Override
+        public void serialize(SplitIdentifier value, JsonGenerator gen, SerializerProvider serializers)
+                throws IOException
+        {
+            gen.writeFieldName(serialize(value));
+        }
+
+        static String serialize(SplitIdentifier value)
+        {
+            return value.serialize();
+        }
+    }
+
     public static final int INSTANCE_SIZE = ClassLayout.parseClass(Page.class).instanceSize();
     private static final Block[] EMPTY_BLOCKS = new Block[0];
 
@@ -49,7 +166,7 @@ public final class Page
     private volatile long sizeInBytes = -1;
     private volatile long retainedSizeInBytes = -1;
     private volatile long logicalSizeInBytes = -1;
-    private String splitIdentifier = "";
+    private Optional<SplitIdentifier> splitIdentifier = Optional.empty();
 
     public Page(Block... blocks)
     {
@@ -73,30 +190,35 @@ public final class Page
         this.blocks = blocksCopyRequired ? blocks.clone() : blocks;
     }
 
-    public void setSplitIdentifier(String splitIdentifier)
+    public void setSplitIdentifier(String id, String tableName, boolean isFinished)
     {
+        this.splitIdentifier = Optional.of(new SplitIdentifier(id, tableName, isFinished));
+    }
+
+    public void setSplitIdentifier(Optional<SplitIdentifier> splitIdentifier)
+    {
+        requireNonNull(splitIdentifier, "splitIdentifier is null");
         this.splitIdentifier = splitIdentifier;
     }
 
-    public String getSplitIdentifier(boolean includeFinished)
+    public Optional<SplitIdentifier> getSplitIdentifier()
     {
-        // Stripe off the ending finished marker such that pages from the same split have the same identifier
-        if (includeFinished) {
-            return splitIdentifier;
-        }
-        else {
-            if (splitIdentifier.endsWith("_finished")) {
-                return splitIdentifier.substring(0, splitIdentifier.length() - "_finished".length());
-            }
-            else {
-                return splitIdentifier;
-            }
-        }
+        return splitIdentifier;
+    }
+
+    public Optional<String> getId()
+    {
+        return splitIdentifier.map(identifier -> identifier.id);
+    }
+
+    public Optional<String> getTableName()
+    {
+        return splitIdentifier.map(identifier -> identifier.tableName);
     }
 
     public boolean isSplitFinishedPage()
     {
-        return splitIdentifier.endsWith("_finished");
+        return splitIdentifier.map(identifier -> identifier.isFinishedPage).orElse(false);
     }
 
     public int getChannelCount()

@@ -14,7 +14,10 @@
 package io.trino.execution.buffer;
 
 import io.airlift.slice.Slice;
+import io.trino.spi.Page;
 import org.openjdk.jol.info.ClassLayout;
+
+import java.util.Optional;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -30,9 +33,9 @@ public class SerializedPage
     private final int positionCount;
     private final int uncompressedSizeInBytes;
     private final byte pageCodecMarkers;
-    private final String splitIdentifier;
+    private final Optional<Page.SplitIdentifier> splitIdentifier;
 
-    public SerializedPage(Slice slice, PageCodecMarker.MarkerSet markers, int positionCount, int uncompressedSizeInBytes, String splitIdentifier)
+    public SerializedPage(Slice slice, PageCodecMarker.MarkerSet markers, int positionCount, int uncompressedSizeInBytes, Optional<Page.SplitIdentifier> splitIdentifier)
     {
         this.slice = requireNonNull(slice, "slice is null");
         this.positionCount = positionCount;
@@ -51,7 +54,7 @@ public class SerializedPage
         }
     }
 
-    public String getIdentifier()
+    public Optional<Page.SplitIdentifier> getSplitIdentifier()
     {
         return splitIdentifier;
     }
@@ -105,10 +108,5 @@ public class SerializedPage
                 .add("sizeInBytes", slice.length())
                 .add("uncompressedSizeInBytes", uncompressedSizeInBytes)
                 .toString();
-    }
-
-    public String getSplitIdentifier()
-    {
-        return splitIdentifier;
     }
 }

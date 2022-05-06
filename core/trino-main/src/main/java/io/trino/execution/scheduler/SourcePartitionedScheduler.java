@@ -20,6 +20,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import io.airlift.log.Logger;
 import io.trino.execution.Lifespan;
 import io.trino.execution.NodeTaskMap;
 import io.trino.execution.RemoteTask;
@@ -29,6 +30,7 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
 import io.trino.server.DynamicFilterService;
 import io.trino.server.remotetask.HttpRemoteTask;
+import io.trino.spi.Page;
 import io.trino.spi.connector.ConnectorPartitionHandle;
 import io.trino.split.EmptySplit;
 import io.trino.split.SplitSource;
@@ -108,6 +110,8 @@ public class SourcePartitionedScheduler
     private State state = State.INITIALIZED;
 
     private SettableFuture<?> whenFinishedOrNewLifespanAdded = SettableFuture.create();
+
+    private static final Logger log = Logger.get(SourcePartitionedScheduler.class);
 
     private SourcePartitionedScheduler(
             SqlStageExecution stage,
@@ -260,6 +264,7 @@ public class SourcePartitionedScheduler
                 verify(scheduleGroup.nextSplitBatchFuture == null);
             }
             else if (pendingSplits.isEmpty() && (!enableDynamicJoinPushdDown || splitsTrackingManager.allSplitsFinished())) {
+                log.info("schedule next batch");
                 // try to get the next batch
                 if (scheduleGroup.nextSplitBatchFuture == null) {
                     scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, splitBatchSize - pendingSplits.size());
@@ -562,8 +567,11 @@ public class SourcePartitionedScheduler
     {
         private final Map<InternalNode, Set<String>> nodeSplitMap = new HashMap<>();
 
+        Set<String> finishedSplitsRecording = new HashSet<>();
+
         public void add(Multimap<InternalNode, Split> splitAssignment)
         {
+            List<String> scheduledSplitsRecording = new ArrayList<>();
             splitAssignment.asMap().forEach((node, splits) -> {
                 Set<String> splitIds = nodeSplitMap.computeIfAbsent(node, k -> new HashSet<>());
                 splits.forEach(s -> {
@@ -572,17 +580,27 @@ public class SourcePartitionedScheduler
                         splitIds.add(splitIdentifier);
                     }
                 });
+                scheduledSplitsRecording.addAll(splitIds);
             });
+            if (!scheduledSplitsRecording.isEmpty()) {
+                log.info("Scheduled splits " + scheduledSplitsRecording + " on scheduler " + this.hashCode());
+            }
         }
 
         public void acknowledge(NodeTaskMap nodeTaskMap)
         {
             nodeSplitMap.forEach((node, splits) -> {
                 Set<RemoteTask> remoteTasks = nodeTaskMap.getNodeTasks(node).getRemoteTasks();
-                List<String> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && ((HttpRemoteTask) task).getPlanFragment().getRoot() instanceof SortMergeAdaptiveJoinNode)
+                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && ((HttpRemoteTask) task).getPlanFragment().getRoot() instanceof SortMergeAdaptiveJoinNode)
                         .map(task -> task.getTaskStatus().getSplitFinishedPagesInfo().keySet()).flatMap(Collection::stream).collect(Collectors.toList());
-                finishedSplits.forEach(splits::remove);
+                List<String> finishedSplitIds = finishedSplits.stream().map(s -> s.getTableName() + "_" + s.getId()).collect(Collectors.toList());
+                splits.stream().filter(finishedSplitIds::contains).forEach(finishedSplitsRecording::add);
+                splits.removeIf(finishedSplitIds::contains);
             });
+            if (!finishedSplitsRecording.isEmpty() && allSplitsFinished()) {
+                log.info("All splits finished : " + finishedSplitsRecording + " on scheduler " + this.hashCode());
+                finishedSplitsRecording.clear();
+            }
         }
 
         public boolean allSplitsFinished()

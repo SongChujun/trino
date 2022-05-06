@@ -15,11 +15,14 @@ package io.trino.execution;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import io.trino.spi.Page;
 
 import java.net.URI;
 import java.util.List;
@@ -59,7 +62,7 @@ public class TaskStatus
     private final int queuedPartitionedDrivers;
     private final int runningPartitionedDrivers;
     private final boolean outputBufferOverutilized;
-    private final Map<String, Integer> splitFinishedPagesInfo;
+    private final Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo;
     private final DataSize physicalWrittenDataSize;
     private final DataSize memoryReservation;
     private final DataSize systemMemoryReservation;
@@ -92,7 +95,10 @@ public class TaskStatus
             @JsonProperty("fullGcCount") long fullGcCount,
             @JsonProperty("fullGcTime") Duration fullGcTime,
             @JsonProperty("dynamicFiltersVersion") long dynamicFiltersVersion,
-            @JsonProperty("splitFinishedPagesInfo") Map<String, Integer> splitFinishedPagesInfo)
+            @JsonProperty("splitFinishedPagesInfo")
+            @JsonDeserialize(keyUsing = Page.SplitIdentifierDeserializer.class)
+            @JsonSerialize(keyUsing = Page.SplitIdentifierSerializer.class)
+            Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo)
     {
         this.taskId = requireNonNull(taskId, "taskId is null");
         this.taskInstanceId = requireNonNull(taskInstanceId, "taskInstanceId is null");
@@ -201,7 +207,7 @@ public class TaskStatus
     }
 
     @JsonProperty
-    public Map<String, Integer> getSplitFinishedPagesInfo()
+    public Map<Page.SplitIdentifier, Integer> getSplitFinishedPagesInfo()
     {
         return splitFinishedPagesInfo;
     }

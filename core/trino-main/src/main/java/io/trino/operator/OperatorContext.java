@@ -174,12 +174,12 @@ public class OperatorContext
     {
         if (page != null) {
             if (page.isSplitFinishedPage()) {
-                addInputSplitFinishedStat.recordSplitFinishedPage(page.getSplitIdentifier(false));
+                addInputSplitFinishedStat.recordSplitFinishedPage(page.getSplitIdentifier().get());
             }
         }
     }
 
-    public Map<String, Integer> getAddInputSplitFinishedMap()
+    public Map<Page.SplitIdentifier, Integer> getAddInputSplitFinishedMap()
     {
         return addInputSplitFinishedStat.getSplitFinishedPageMap();
     }

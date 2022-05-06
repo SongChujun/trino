@@ -321,7 +321,7 @@ public class PartitionedOutputOperator
         private final AtomicLong pagesAdded = new AtomicLong();
         private boolean hasAnyRowBeenReplicated;
         private final OperatorContext operatorContext;
-        private String splitIdentifier;
+        private Optional<Page.SplitIdentifier> splitIdentifier;
 
         public PagePartitioner(
                 PartitionFunction partitionFunction,
@@ -352,7 +352,7 @@ public class PartitionedOutputOperator
             this.sourceTypes = requireNonNull(sourceTypes, "sourceTypes is null");
             this.serde = requireNonNull(serdeFactory, "serdeFactory is null").createPagesSerde();
             this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
-            this.splitIdentifier = null;
+            this.splitIdentifier = Optional.empty();
 
             //  Ensure partition channels align with constant arguments provided
             for (int i = 0; i < this.partitionChannels.length; i++) {
@@ -407,13 +407,13 @@ public class PartitionedOutputOperator
 
         public void partitionPage(Page page)
         {
-            if (splitIdentifier == null) {
-                splitIdentifier = page.getSplitIdentifier(true);
+            if (splitIdentifier.isEmpty()) {
+                splitIdentifier = page.getSplitIdentifier();
             }
-            if (!splitIdentifier.equals(page.getSplitIdentifier(true))) {
-                splitIdentifier = page.getSplitIdentifier(true);
+            if (!splitIdentifier.equals(page.getSplitIdentifier())) {
+                splitIdentifier = page.getSplitIdentifier();
             }
-            if (!splitIdentifierEquals(splitIdentifier, page.getSplitIdentifier(true))) {
+            if (splitIdentifier.isPresent() && page.getSplitIdentifier().isPresent() && !splitIdentifier.get().equalsIgnoringFinished(page.getSplitIdentifier().get())) {
                 flush(true);
             }
             requireNonNull(page, "page is null");
@@ -487,7 +487,7 @@ public class PartitionedOutputOperator
                     PageBuilder partitionPageBuilder = pageBuilders[partition];
                     if (!partitionPageBuilder.isEmpty() && (force || partitionPageBuilder.isFull())) {
                         Page pagePartition = partitionPageBuilder.build();
-                        pagePartition.setSplitIdentifier(splitIdentifier != null ? splitIdentifier : "");
+                        pagePartition.setSplitIdentifier(splitIdentifier.isPresent() ? splitIdentifier : Optional.empty());
                         partitionPageBuilder.reset();
 
                         operatorContext.recordOutput(pagePartition.getSizeInBytes(), pagePartition.getPositionCount());

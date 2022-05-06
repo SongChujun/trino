@@ -440,7 +440,7 @@ public class PostgreSqlClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate() : "", QueryBuilder.Datasource.POSTGRESQL));
+                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.POSTGRESQL));
     }
 
     @Override
@@ -463,7 +463,7 @@ public class PostgreSqlClient
                             partitioned = true;
                         }
                         else {
-                            res.add(new JdbcSplit(name));
+                            res.add(new JdbcSplit(tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName() + "_" + name));
                         }
                     }
                 }

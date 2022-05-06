@@ -22,6 +22,7 @@ import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
+import io.trino.plugin.jdbc.JdbcJoinCondition;
 import io.trino.plugin.jdbc.JdbcSortItem;
 import io.trino.plugin.jdbc.JdbcSplit;
 import io.trino.plugin.jdbc.JdbcTableHandle;
@@ -188,7 +189,7 @@ public class ClickHouseClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate() : "", QueryBuilder.Datasource.CLICKHOUSE));
+                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.CLICKHOUSE));
     }
 
     @Override
@@ -228,7 +229,7 @@ public class ClickHouseClient
         }
         else {
             for (String partition : partitions.build()) {
-                res.add(new JdbcSplit(partition));
+                res.add(new JdbcSplit(tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName() + "_" + partition));
             }
             return new FixedSplitSource((res.build()));
         }
@@ -413,6 +414,13 @@ public class ClickHouseClient
     @Override
     public boolean isLimitGuaranteed(ConnectorSession session)
     {
+        return true;
+    }
+
+    @Override
+    protected boolean isSupportedJoinCondition(JdbcJoinCondition joinCondition)
+    {
+        // need careful check, hacky here
         return true;
     }
 

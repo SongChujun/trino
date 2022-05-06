@@ -466,7 +466,7 @@ public abstract class BaseJdbcClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate() : "", QueryBuilder.Datasource.OTHER));
+                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.OTHER));
     }
 
     @Override

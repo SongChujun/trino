@@ -34,6 +34,7 @@ import io.trino.memory.QueryContext;
 import io.trino.memory.QueryContextVisitor;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.memory.context.MemoryTrackingContext;
+import io.trino.spi.Page;
 import io.trino.spi.predicate.Domain;
 import io.trino.sql.planner.plan.DynamicFilterId;
 import org.joda.time.DateTime;
@@ -367,9 +368,9 @@ public class TaskContext
         return stat;
     }
 
-    public Map<String, Integer> getSplitFinishedPagesInfo()
+    public Map<Page.SplitIdentifier, Integer> getSplitFinishedPagesInfo()
     {
-        Map<String, Integer> splitFinishedPagesInfo = new HashMap<>();
+        Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo = new HashMap<>();
         for (PipelineContext pipelineContext : pipelineContexts) {
             pipelineContext.getSplitFinishedPagesInfo().forEach((k, v) -> splitFinishedPagesInfo.merge(k, v, Integer::sum));
         }

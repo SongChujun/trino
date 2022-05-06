@@ -36,6 +36,7 @@ import io.trino.operator.PipelineContext;
 import io.trino.operator.PipelineStatus;
 import io.trino.operator.TaskContext;
 import io.trino.operator.TaskStats;
+import io.trino.spi.Page;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.PlanNodeId;
 import org.joda.time.DateTime;
@@ -290,7 +291,7 @@ public class SqlTask
         long fullGcCount = 0;
         Duration fullGcTime = new Duration(0, MILLISECONDS);
         long dynamicFiltersVersion = INITIAL_DYNAMIC_FILTERS_VERSION;
-        Map<String, Integer> splitFinishedPagesInfo = ImmutableMap.of();
+        Map<Page.SplitIdentifier, Integer> splitFinishedPagesInfo = ImmutableMap.of();
         if (taskHolder.getFinalTaskInfo() != null) {
             TaskInfo taskInfo = taskHolder.getFinalTaskInfo();
             splitFinishedPagesInfo = taskInfo.getTaskStatus().getSplitFinishedPagesInfo();

@@ -262,11 +262,11 @@ public class PagesIndex
         if (page.getPositionCount() == 0) {
             return;
         }
-
-        if (!pagesBySplit.containsKey(page.getSplitIdentifier(false))) {
-            pagesBySplit.put(page.getSplitIdentifier(false), new ArrayList<>());
+        String pageId = page.getId().isPresent() ? page.getId().get() : "";
+        if (!pagesBySplit.containsKey(pageId)) {
+            pagesBySplit.put(pageId, new ArrayList<>());
         }
-        pagesBySplit.get(page.getSplitIdentifier(false)).add(pageCount);
+        pagesBySplit.get(pageId).add(pageCount);
 
         pageCount++;
         positionCount += page.getPositionCount();

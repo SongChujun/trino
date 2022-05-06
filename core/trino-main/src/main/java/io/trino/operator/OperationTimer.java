@@ -13,6 +13,8 @@
  */
 package io.trino.operator;
 
+import io.trino.spi.Page;
+
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -147,14 +149,14 @@ class OperationTimer
 
     static class SplitFinishedPageStat
     {
-        ConcurrentHashMap<String, Integer> splitFinishedPageMap = new ConcurrentHashMap<>();
+        ConcurrentHashMap<Page.SplitIdentifier, Integer> splitFinishedPageMap = new ConcurrentHashMap<>();
 
-        void recordSplitFinishedPage(String pageIdentifier)
+        void recordSplitFinishedPage(Page.SplitIdentifier pageIdentifier)
         {
             splitFinishedPageMap.compute(pageIdentifier, (key, value) -> value == null ? 1 : value + 1);
         }
 
-        public ConcurrentHashMap<String, Integer> getSplitFinishedPageMap()
+        public ConcurrentHashMap<Page.SplitIdentifier, Integer> getSplitFinishedPageMap()
         {
             return splitFinishedPageMap;
         }
