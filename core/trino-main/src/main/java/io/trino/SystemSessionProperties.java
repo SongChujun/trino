@@ -275,7 +275,7 @@ public final class SystemSessionProperties
                 integerProperty(
                         PAGES_SORT_BATCH_SIZE,
                         "Default size of batch for sorting",
-                        taskManagerConfig.getTaskConcurrency(),
+                        taskManagerConfig.getPagesSortBatchSize(),
                         value -> validateIntegerValue(value, PAGES_SORT_BATCH_SIZE, 1, false),
                         false),
                 booleanProperty(
