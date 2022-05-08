@@ -345,7 +345,7 @@ public class ScanFilterAndProjectOperator
                 boolean isFinished = false;
                 if (finished) {
                     isFinished = true;
-                    log.info("read split finished: " + splitIdentifiers[0] + "_" + splitIdentifiers[1]);
+                    log.debug("read split finished: " + splitIdentifiers[0] + "_" + splitIdentifiers[1]);
                 }
                 page.setSplitIdentifier(splitIdentifier, tableName, isFinished);
                 pageBuilder.reset();

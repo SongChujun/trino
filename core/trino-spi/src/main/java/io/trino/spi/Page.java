@@ -42,6 +42,8 @@ import static java.util.Objects.requireNonNull;
 
 public final class Page
 {
+    public static final SplitIdentifier NO_IDENTIFIER = new SplitIdentifier("-1", "NONE", false);
+
     public static class SplitIdentifier
     {
         private final String id;
@@ -115,6 +117,12 @@ public final class Page
         public int hashCode()
         {
             return Objects.hash(id, tableName, isFinishedPage);
+        }
+
+        @Override
+        public String toString()
+        {
+            return serialize();
         }
     }
 

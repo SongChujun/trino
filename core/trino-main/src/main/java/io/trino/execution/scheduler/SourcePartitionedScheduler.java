@@ -264,7 +264,6 @@ public class SourcePartitionedScheduler
                 verify(scheduleGroup.nextSplitBatchFuture == null);
             }
             else if (pendingSplits.isEmpty() && (!enableDynamicJoinPushdDown || splitsTrackingManager.allSplitsFinished())) {
-                log.info("schedule next batch");
                 // try to get the next batch
                 if (scheduleGroup.nextSplitBatchFuture == null) {
                     scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, splitBatchSize - pendingSplits.size());
@@ -583,7 +582,7 @@ public class SourcePartitionedScheduler
                 scheduledSplitsRecording.addAll(splitIds);
             });
             if (!scheduledSplitsRecording.isEmpty()) {
-                log.info("Scheduled splits " + scheduledSplitsRecording + " on scheduler " + this.hashCode());
+                log.debug("Scheduled splits " + scheduledSplitsRecording + " on scheduler " + this.hashCode());
             }
         }
 
@@ -598,7 +597,7 @@ public class SourcePartitionedScheduler
                 splits.removeIf(finishedSplitIds::contains);
             });
             if (!finishedSplitsRecording.isEmpty() && allSplitsFinished()) {
-                log.info("All splits finished : " + finishedSplitsRecording + " on scheduler " + this.hashCode());
+                log.debug("All splits finished : " + finishedSplitsRecording + " on scheduler " + this.hashCode());
                 finishedSplitsRecording.clear();
             }
         }

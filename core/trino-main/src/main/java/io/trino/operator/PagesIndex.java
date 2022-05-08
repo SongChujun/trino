@@ -305,7 +305,7 @@ public class PagesIndex
         positionCount += page.getPositionCount();
         pagesBatchIter++;
         boolean batchCollected = false;
-        if (pagesBatchIter == pagesBatchSize) {
+        if (pagesBatchIter == pagesBatchSize || ((pagesBatchSize < 0) && page.isSplitFinishedPage())) {
             batchEndingPosition.add(positionCount);
             pagesBatchIter = 0;
             batchCollected = true;
@@ -334,28 +334,6 @@ public class PagesIndex
         estimatedSize = calculateEstimatedSize();
         if (batchCollected) {
             pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
-        }
-    }
-
-    private static class Pair
-    {
-        private final int idx;
-        private final String group;
-
-        public Pair(int idx, String group)
-        {
-            this.idx = idx;
-            this.group = group;
-        }
-
-        public int getIdx()
-        {
-            return idx;
-        }
-
-        public String getGroup()
-        {
-            return group;
         }
     }
 
@@ -581,7 +559,9 @@ public class PagesIndex
             this.addPage(page);
         }
         if (!(mode == SortOperator.SortOperatorFactory.Mode.STATIC && sortedGroups.size() == 1)) {
+            log.debug("Merge %d sorting groups of size %d on %d ", sortedGroups.size(), this.getPositionCount(), this.hashCode());
             LongArrayList newValueAddress = this.mergePages(sortedGroups);
+            log.debug("Merge done on %d", this.hashCode());
             valueAddresses.removeElements(valueAddresses.size() - newValueAddress.size(), valueAddresses.size());
             valueAddresses.addAll(newValueAddress);
         }

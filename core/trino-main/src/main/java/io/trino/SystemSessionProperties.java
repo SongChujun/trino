@@ -276,7 +276,7 @@ public final class SystemSessionProperties
                         PAGES_SORT_BATCH_SIZE,
                         "Default size of batch for sorting",
                         taskManagerConfig.getPagesSortBatchSize(),
-                        value -> validateIntegerValue(value, PAGES_SORT_BATCH_SIZE, 1, false),
+                        value -> validateIntegerValue(value, PAGES_SORT_BATCH_SIZE, -2, false),
                         false),
                 booleanProperty(
                         TASK_SHARE_INDEX_LOADING,
