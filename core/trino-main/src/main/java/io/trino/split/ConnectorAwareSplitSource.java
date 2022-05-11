@@ -24,6 +24,8 @@ import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorSplitSource.ConnectorSplitBatch;
 
+import java.util.Objects;
+
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
 import static java.util.Objects.requireNonNull;
@@ -75,5 +77,24 @@ public class ConnectorAwareSplitSource
     public String toString()
     {
         return catalogName + ":" + source;
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        ConnectorAwareSplitSource that = (ConnectorAwareSplitSource) o;
+        return Objects.equals(catalogName, that.catalogName) && Objects.equals(source, that.source);
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(catalogName, source);
     }
 }

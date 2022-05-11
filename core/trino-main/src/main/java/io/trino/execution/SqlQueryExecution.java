@@ -40,6 +40,7 @@ import io.trino.operator.ForScheduler;
 import io.trino.security.AccessControl;
 import io.trino.server.BasicQueryInfo;
 import io.trino.server.DynamicFilterService;
+import io.trino.server.DynamicJoinPushdownService;
 import io.trino.server.protocol.Slug;
 import io.trino.spi.QueryId;
 import io.trino.spi.TrinoException;
@@ -133,6 +134,8 @@ public class SqlQueryExecution
     private final CostCalculator costCalculator;
     private final DynamicFilterService dynamicFilterService;
 
+    private final DynamicJoinPushdownService dynamicJoinPushdownService;
+
     private SqlQueryExecution(
             PreparedQuery preparedQuery,
             QueryStateMachine stateMachine,
@@ -159,6 +162,7 @@ public class SqlQueryExecution
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             DynamicFilterService dynamicFilterService,
+            DynamicJoinPushdownService dynamicJoinPushdownService,
             WarningCollector warningCollector)
     {
         try (SetThreadName ignored = new SetThreadName("Query-%s", stateMachine.getQueryId())) {
@@ -180,6 +184,7 @@ public class SqlQueryExecution
             this.statsCalculator = requireNonNull(statsCalculator, "statsCalculator is null");
             this.costCalculator = requireNonNull(costCalculator, "costCalculator is null");
             this.dynamicFilterService = requireNonNull(dynamicFilterService, "dynamicFilterService is null");
+            this.dynamicJoinPushdownService = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
 
             checkArgument(scheduleSplitBatchSize > 0, "scheduleSplitBatchSize must be greater than 0");
             this.scheduleSplitBatchSize = scheduleSplitBatchSize;
@@ -544,7 +549,8 @@ public class SqlQueryExecution
                 nodeTaskMap,
                 executionPolicy,
                 schedulerStats,
-                dynamicFilterService);
+                dynamicFilterService,
+                dynamicJoinPushdownService);
 
         queryScheduler.set(scheduler);
 
@@ -801,6 +807,7 @@ public class SqlQueryExecution
             int scheduleSplitBatchSize = SystemSessionProperties.getScheduleSplitBatchSize(stateMachine.getSession());
             ExecutionPolicy executionPolicy = executionPolicies.get(executionPolicyName);
             checkArgument(executionPolicy != null, "No execution policy %s", executionPolicyName);
+            DynamicJoinPushdownService dynamicJoinPushdownService = new DynamicJoinPushdownService(SystemSessionProperties.getElasticJoinType(stateMachine.getSession()));
 
             return new SqlQueryExecution(
                     preparedQuery,
@@ -828,6 +835,7 @@ public class SqlQueryExecution
                     statsCalculator,
                     costCalculator,
                     dynamicFilterService,
+                    dynamicJoinPushdownService,
                     warningCollector);
         }
     }

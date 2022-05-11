@@ -189,7 +189,7 @@ public class ClickHouseClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.CLICKHOUSE));
+                split.isPresent() && !split.get().getAdditionalPredicate().isEmpty() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.CLICKHOUSE));
     }
 
     @Override

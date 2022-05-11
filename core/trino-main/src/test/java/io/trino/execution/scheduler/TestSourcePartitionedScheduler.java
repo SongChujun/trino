@@ -38,6 +38,7 @@ import io.trino.metadata.InternalNodeManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.QualifiedObjectName;
 import io.trino.server.DynamicFilterService;
+import io.trino.server.DynamicJoinPushdownService;
 import io.trino.spi.QueryId;
 import io.trino.spi.connector.ConnectorPartitionHandle;
 import io.trino.spi.connector.ConnectorSplit;
@@ -340,6 +341,7 @@ public class TestSourcePartitionedScheduler
                     new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                     2,
                     new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
+                    new DynamicJoinPushdownService(null),
                     () -> false);
             scheduler.schedule();
         }).hasErrorCode(NO_NODES_AVAILABLE);
@@ -414,6 +416,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 500,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
+                new DynamicJoinPushdownService(null),
                 () -> false);
 
         // the queues of 3 running nodes should be full
@@ -453,6 +456,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 400,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
+                new DynamicJoinPushdownService(null),
                 () -> true);
 
         // the queues of 3 running nodes should be full
@@ -490,6 +494,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 2,
                 dynamicFilterService,
+                new DynamicJoinPushdownService(null),
                 () -> true);
 
         SymbolAllocator symbolAllocator = new SymbolAllocator();
@@ -555,6 +560,7 @@ public class TestSourcePartitionedScheduler
                 placementPolicy,
                 splitBatchSize,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
+                new DynamicJoinPushdownService(null),
                 () -> false);
     }
 

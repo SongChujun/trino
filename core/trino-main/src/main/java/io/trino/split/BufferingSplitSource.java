@@ -22,6 +22,7 @@ import io.trino.spi.connector.ConnectorPartitionHandle;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
@@ -57,6 +58,25 @@ public class BufferingSplitSource
     public void close()
     {
         source.close();
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        BufferingSplitSource that = (BufferingSplitSource) o;
+        return bufferSize == that.bufferSize && source.equals(that.source);
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(bufferSize, source);
     }
 
     @Override

@@ -29,6 +29,7 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
 import io.trino.operator.StageExecutionDescriptor;
 import io.trino.server.DynamicFilterService;
+import io.trino.server.DynamicJoinPushdownService;
 import io.trino.spi.connector.ConnectorPartitionHandle;
 import io.trino.split.SplitSource;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -75,7 +76,8 @@ public class FixedSourcePartitionedScheduler
             OptionalInt concurrentLifespansPerTask,
             NodeSelector nodeSelector,
             List<ConnectorPartitionHandle> partitionHandles,
-            DynamicFilterService dynamicFilterService)
+            DynamicFilterService dynamicFilterService,
+            DynamicJoinPushdownService dynamicJoinPushdownService)
     {
         requireNonNull(stage, "stage is null");
         requireNonNull(splitSources, "splitSources is null");
@@ -119,6 +121,7 @@ public class FixedSourcePartitionedScheduler
                     Math.max(splitBatchSize / concurrentLifespans, 1),
                     groupedExecutionForScanNode,
                     dynamicFilterService,
+                    dynamicJoinPushdownService,
                     () -> true);
 
             if (stageExecutionDescriptor.isStageGroupedExecution() && !groupedExecutionForScanNode) {

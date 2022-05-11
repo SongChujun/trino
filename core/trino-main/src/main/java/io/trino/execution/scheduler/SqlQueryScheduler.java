@@ -42,6 +42,7 @@ import io.trino.execution.buffer.OutputBuffers.OutputBufferId;
 import io.trino.failuredetector.FailureDetector;
 import io.trino.metadata.InternalNode;
 import io.trino.server.DynamicFilterService;
+import io.trino.server.DynamicJoinPushdownService;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorPartitionHandle;
 import io.trino.split.SplitSource;
@@ -122,6 +123,8 @@ public class SqlQueryScheduler
     private final SplitSchedulerStats schedulerStats;
     private final boolean summarizeTaskInfo;
     private final DynamicFilterService dynamicFilterService;
+
+    private final DynamicJoinPushdownService dynamicJoinPushdownService;
     private final AtomicBoolean started = new AtomicBoolean();
 
     public static SqlQueryScheduler createSqlQueryScheduler(
@@ -140,7 +143,8 @@ public class SqlQueryScheduler
             NodeTaskMap nodeTaskMap,
             ExecutionPolicy executionPolicy,
             SplitSchedulerStats schedulerStats,
-            DynamicFilterService dynamicFilterService)
+            DynamicFilterService dynamicFilterService,
+            DynamicJoinPushdownService dynamicJoinPushdownService)
     {
         SqlQueryScheduler sqlQueryScheduler = new SqlQueryScheduler(
                 queryStateMachine,
@@ -158,7 +162,8 @@ public class SqlQueryScheduler
                 nodeTaskMap,
                 executionPolicy,
                 schedulerStats,
-                dynamicFilterService);
+                dynamicFilterService,
+                dynamicJoinPushdownService);
         sqlQueryScheduler.initialize();
         return sqlQueryScheduler;
     }
@@ -179,13 +184,15 @@ public class SqlQueryScheduler
             NodeTaskMap nodeTaskMap,
             ExecutionPolicy executionPolicy,
             SplitSchedulerStats schedulerStats,
-            DynamicFilterService dynamicFilterService)
+            DynamicFilterService dynamicFilterService,
+            DynamicJoinPushdownService dynamicJoinPushdownService)
     {
         this.queryStateMachine = requireNonNull(queryStateMachine, "queryStateMachine is null");
         this.executionPolicy = requireNonNull(executionPolicy, "executionPolicy is null");
         this.schedulerStats = requireNonNull(schedulerStats, "schedulerStats is null");
         this.summarizeTaskInfo = summarizeTaskInfo;
         this.dynamicFilterService = requireNonNull(dynamicFilterService, "dynamicFilterService is null");
+        this.dynamicJoinPushdownService = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
 
         // todo come up with a better way to build this, or eliminate this map
         ImmutableMap.Builder<StageId, StageScheduler> stageSchedulers = ImmutableMap.builder();
@@ -370,6 +377,7 @@ public class SqlQueryScheduler
                     placementPolicy,
                     splitBatchSize,
                     dynamicFilterService,
+                    dynamicJoinPushdownService,
                     () -> childStages.stream().anyMatch(SqlStageExecution::isAnyTaskBlocked)));
         }
         else if (partitioningHandle.equals(SCALED_WRITER_DISTRIBUTION)) {
@@ -448,7 +456,8 @@ public class SqlQueryScheduler
                         getConcurrentLifespansPerNode(session),
                         nodeScheduler.createNodeSelector(session, catalogName),
                         connectorPartitionHandles,
-                        dynamicFilterService));
+                        dynamicFilterService,
+                        dynamicJoinPushdownService));
             }
             else {
                 // all sources are remote

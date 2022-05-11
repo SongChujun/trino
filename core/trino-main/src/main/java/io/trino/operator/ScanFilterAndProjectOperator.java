@@ -292,7 +292,7 @@ public class ScanFilterAndProjectOperator
     private class RecordCursorToPages
             implements WorkProcessor.Process<Page>
     {
-        private final Logger log = Logger.get(RecordCursorToPages.class);
+        private final Logger log = Logger.get(ScanFilterAndProjectOperator.class);
 
         final Session session;
         final DriverYieldSignal yieldSignal;
