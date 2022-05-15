@@ -26,7 +26,7 @@ import io.trino.plugin.jdbc.DriverConnectionFactory;
 import io.trino.plugin.jdbc.ForBaseJdbc;
 import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
-import ru.yandex.clickhouse.ClickHouseDriver;
+import com.github.housepower.jdbc.ClickHouseDriver;
 
 import static io.trino.plugin.jdbc.JdbcModule.bindTablePropertiesProvider;
 
