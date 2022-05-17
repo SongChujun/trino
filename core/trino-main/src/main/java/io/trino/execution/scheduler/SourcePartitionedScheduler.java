@@ -22,7 +22,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import io.airlift.log.Logger;
 import io.trino.execution.Lifespan;
-import io.trino.execution.NodeTaskMap;
 import io.trino.execution.RemoteTask;
 import io.trino.execution.SqlStageExecution;
 import io.trino.execution.scheduler.FixedSourcePartitionedScheduler.BucketedSplitPlacementPolicy;
@@ -30,18 +29,13 @@ import io.trino.metadata.InternalNode;
 import io.trino.metadata.Split;
 import io.trino.server.DynamicFilterService;
 import io.trino.server.DynamicJoinPushdownService;
-import io.trino.server.remotetask.HttpRemoteTask;
-import io.trino.spi.Page;
 import io.trino.spi.connector.ConnectorPartitionHandle;
 import io.trino.split.EmptySplit;
 import io.trino.split.SplitSource;
 import io.trino.split.SplitSource.SplitBatch;
-import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.planner.plan.PlanNodeId;
-import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -51,7 +45,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
-import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -99,22 +92,15 @@ public class SourcePartitionedScheduler
     private final SqlStageExecution stage;
     private final SplitSource splitSource;
     private final SplitPlacementPolicy splitPlacementPolicy;
-    private final int splitBatchSize;
-
-    private final int competitionBatchSize;
     private final PlanNodeId partitionedNode;
     private final boolean groupedExecution;
     private final boolean enableDynamicJoinPushdDown;
-    private SchedulerSplitsTrackingManager splitsTrackingManager = new SchedulerSplitsTrackingManager();
     private final DynamicFilterService dynamicFilterService;
-
     private final DynamicJoinPushdownService dynamicJoinPushdownService;
     private final BooleanSupplier anySourceTaskBlocked;
-
     private final Map<Lifespan, ScheduleGroup> scheduleGroups = new HashMap<>();
     private boolean noMoreScheduleGroups;
     private State state = State.INITIALIZED;
-
     private SettableFuture<?> whenFinishedOrNewLifespanAdded = SettableFuture.create();
 
     private static final Logger log = Logger.get(SourcePartitionedScheduler.class);
@@ -139,8 +125,6 @@ public class SourcePartitionedScheduler
         this.anySourceTaskBlocked = requireNonNull(anySourceTaskBlocked, "anySourceTaskBlocked is null");
 
         checkArgument(splitBatchSize > 0, "splitBatchSize must be at least one");
-        this.splitBatchSize = splitBatchSize;
-        this.competitionBatchSize = 1;
         this.groupedExecution = groupedExecution;
         this.enableDynamicJoinPushdDown = stage.getEnableDynamicJoinPushDown();
     }
@@ -271,22 +255,19 @@ public class SourcePartitionedScheduler
             ScheduleGroup scheduleGroup = entry.getValue();
             Set<Split> pendingSplits = scheduleGroup.pendingSplits;
             if (enableDynamicJoinPushdDown) {
-                splitsTrackingManager.acknowledge(stage.getNodeTaskMap());
-            }
-
-            if (dynamicJoinPushdownService.inCompetition(splitSource)) {
-                if (splitsTrackingManager.hasSplitsFinished() && splitsTrackingManager.allSplitsFinished()) {
-                    dynamicJoinPushdownService.registerOccupationStageId(splitSource, this.stage.getStageId());
-                }
+                dynamicJoinPushdownService.acknowledge(stage.getStageId(), stage.getNodeTaskMap());
             }
 
             if (scheduleGroup.state == ScheduleGroupState.NO_MORE_SPLITS || scheduleGroup.state == ScheduleGroupState.DONE) {
                 verify(scheduleGroup.nextSplitBatchFuture == null);
             }
-            else if (pendingSplits.isEmpty() && (!enableDynamicJoinPushdDown || dynamicJoinPushdownService.getElasticJoinType() == FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS || ((dynamicJoinPushdownService.inCompetition(splitSource) && scheduleGroup.state == ScheduleGroupState.INITIALIZED) || dynamicJoinPushdownService.checkOccupied(splitSource, stage.getStageId())))) {
+            else if (pendingSplits.isEmpty() && (!enableDynamicJoinPushdDown || dynamicJoinPushdownService.checkCouldSchedule(stage.getStageId()))) {
+                DynamicJoinPushdownService.DynamicSchedulingState dynamicSchedulingState = dynamicJoinPushdownService.getDynamicSchedulingState();
+
                 // try to get the next batch
                 if (scheduleGroup.nextSplitBatchFuture == null) {
-                    scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, dynamicJoinPushdownService.inCompetition(splitSource) ? competitionBatchSize : splitBatchSize - pendingSplits.size());
+                    int schedulingBatchSize = dynamicJoinPushdownService.getSchedulingBatchSize();
+                    scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, schedulingBatchSize - pendingSplits.size());
 
                     long start = System.nanoTime();
                     addSuccessCallback(scheduleGroup.nextSplitBatchFuture, () -> stage.recordGetSplitTime(start));
@@ -296,6 +277,10 @@ public class SourcePartitionedScheduler
                     SplitBatch nextSplits = getFutureValue(scheduleGroup.nextSplitBatchFuture);
                     scheduleGroup.nextSplitBatchFuture = null;
                     pendingSplits.addAll(nextSplits.getSplits());
+                    if (dynamicSchedulingState.equals(DynamicJoinPushdownService.DynamicSchedulingState.PROBE)) {
+                        checkState(nextSplits.getSplits().size() <= dynamicJoinPushdownService.getProbeBatchSize());
+                        dynamicJoinPushdownService.setProbeSplits(stage.getStageId(), nextSplits.getSplits());
+                    }
                     if (nextSplits.isLastBatch()) {
                         if (scheduleGroup.state == ScheduleGroupState.INITIALIZED && pendingSplits.isEmpty()) {
                             // Add an empty split in case no splits have been produced for the source.
@@ -310,6 +295,7 @@ public class SourcePartitionedScheduler
                                     lifespan));
                         }
                         scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
+                        dynamicJoinPushdownService.setNoMoreSplits();
                     }
                 }
                 else {
@@ -319,7 +305,7 @@ public class SourcePartitionedScheduler
                 }
             }
 
-            if (enableDynamicJoinPushdDown && dynamicJoinPushdownService.getElasticJoinType() == FeaturesConfig.ElasticJoinType.DYNAMIC && !dynamicJoinPushdownService.inCompetition(splitSource) && !dynamicJoinPushdownService.checkOccupied(splitSource, stage.getStageId())) {
+            if (enableDynamicJoinPushdDown && dynamicJoinPushdownService.isNoMoreSplits()) {
                 scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
             }
 
@@ -365,7 +351,7 @@ public class SourcePartitionedScheduler
 
             // assign the splits with successful placements
             if (enableDynamicJoinPushdDown) {
-                splitsTrackingManager.add(splitAssignment);
+                dynamicJoinPushdownService.scheduleSplits(stage.getStageId(), splitAssignment);
             }
 
             overallNewTasks.addAll(assignSplits(splitAssignment, noMoreSplitsNotification));
@@ -583,61 +569,6 @@ public class SourcePartitionedScheduler
         public ScheduleGroup(ConnectorPartitionHandle partitionHandle)
         {
             this.partitionHandle = requireNonNull(partitionHandle, "partitionHandle is null");
-        }
-    }
-
-    private static class SchedulerSplitsTrackingManager
-    {
-        private final Map<InternalNode, Set<String>> nodeSplitMap = new HashMap<>();
-
-        Set<String> finishedSplitsRecording = new HashSet<>();
-
-        private int finishedSplitsCnt;
-
-        public void add(Multimap<InternalNode, Split> splitAssignment)
-        {
-            Map<String, Set<String>> scheduledSplitsRecording = new HashMap<>();
-            splitAssignment.asMap().forEach((node, splits) -> {
-                Set<String> splitIds = nodeSplitMap.computeIfAbsent(node, k -> new HashSet<>());
-                splits.forEach(s -> {
-                    String splitIdentifier = s.getConnectorSplit().getIdentifier();
-                    if (!splitIdentifier.isEmpty()) {
-                        splitIds.add(splitIdentifier);
-                    }
-                });
-                Set<String> currentNodeSplitAssignment = scheduledSplitsRecording.computeIfAbsent(node.getNodeIdentifier(), k -> new HashSet<>());
-                currentNodeSplitAssignment.addAll(splitIds);
-            });
-            if (!scheduledSplitsRecording.isEmpty()) {
-                log.debug("Scheduled splits " + scheduledSplitsRecording + " on scheduler " + this.hashCode());
-            }
-        }
-
-        public void acknowledge(NodeTaskMap nodeTaskMap)
-        {
-            nodeSplitMap.forEach((node, splits) -> {
-                Set<RemoteTask> remoteTasks = nodeTaskMap.getNodeTasks(node).getRemoteTasks();
-                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && ((HttpRemoteTask) task).getPlanFragment().getRoot() instanceof SortMergeAdaptiveJoinNode)
-                        .map(task -> task.getTaskStatus().getSplitFinishedPagesInfo().keySet()).flatMap(Collection::stream).collect(Collectors.toList());
-                List<String> finishedSplitIds = finishedSplits.stream().map(s -> s.getTableName() + "_" + s.getId()).collect(Collectors.toList());
-                finishedSplitsCnt += finishedSplitIds.size();
-                splits.stream().filter(finishedSplitIds::contains).forEach(finishedSplitsRecording::add);
-                splits.removeIf(finishedSplitIds::contains);
-            });
-            if (!finishedSplitsRecording.isEmpty() && allSplitsFinished()) {
-                log.debug("All splits finished : " + finishedSplitsRecording + " on scheduler " + this.hashCode());
-                finishedSplitsRecording.clear();
-            }
-        }
-
-        public boolean allSplitsFinished()
-        {
-            return nodeSplitMap.values().stream().allMatch(Set::isEmpty);
-        }
-
-        public boolean hasSplitsFinished()
-        {
-            return finishedSplitsCnt > 0;
         }
     }
 

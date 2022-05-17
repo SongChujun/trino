@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.clickhouse;
 
+import com.github.housepower.jdbc.ClickHouseDriver;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;
@@ -26,7 +27,6 @@ import io.trino.plugin.jdbc.DriverConnectionFactory;
 import io.trino.plugin.jdbc.ForBaseJdbc;
 import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
-import com.github.housepower.jdbc.ClickHouseDriver;
 
 import static io.trino.plugin.jdbc.JdbcModule.bindTablePropertiesProvider;
 

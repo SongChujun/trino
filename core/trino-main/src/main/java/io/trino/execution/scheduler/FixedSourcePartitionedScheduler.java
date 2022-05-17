@@ -77,7 +77,7 @@ public class FixedSourcePartitionedScheduler
             NodeSelector nodeSelector,
             List<ConnectorPartitionHandle> partitionHandles,
             DynamicFilterService dynamicFilterService,
-            DynamicJoinPushdownService dynamicJoinPushdownService)
+            Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices)
     {
         requireNonNull(stage, "stage is null");
         requireNonNull(splitSources, "splitSources is null");
@@ -121,7 +121,7 @@ public class FixedSourcePartitionedScheduler
                     Math.max(splitBatchSize / concurrentLifespans, 1),
                     groupedExecutionForScanNode,
                     dynamicFilterService,
-                    dynamicJoinPushdownService,
+                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, key -> new DynamicJoinPushdownService()),
                     () -> true);
 
             if (stageExecutionDescriptor.isStageGroupedExecution() && !groupedExecutionForScanNode) {

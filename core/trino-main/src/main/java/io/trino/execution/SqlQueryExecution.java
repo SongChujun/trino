@@ -50,6 +50,7 @@ import io.trino.split.SplitManager;
 import io.trino.split.SplitSource;
 import io.trino.sql.analyzer.Analysis;
 import io.trino.sql.analyzer.Analyzer;
+import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.analyzer.QueryExplainer;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.DistributedExecutionPlanner;
@@ -74,6 +75,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -134,7 +136,7 @@ public class SqlQueryExecution
     private final CostCalculator costCalculator;
     private final DynamicFilterService dynamicFilterService;
 
-    private final DynamicJoinPushdownService dynamicJoinPushdownService;
+    private final Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices;
 
     private SqlQueryExecution(
             PreparedQuery preparedQuery,
@@ -162,7 +164,7 @@ public class SqlQueryExecution
             StatsCalculator statsCalculator,
             CostCalculator costCalculator,
             DynamicFilterService dynamicFilterService,
-            DynamicJoinPushdownService dynamicJoinPushdownService,
+            Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices,
             WarningCollector warningCollector)
     {
         try (SetThreadName ignored = new SetThreadName("Query-%s", stateMachine.getQueryId())) {
@@ -184,7 +186,7 @@ public class SqlQueryExecution
             this.statsCalculator = requireNonNull(statsCalculator, "statsCalculator is null");
             this.costCalculator = requireNonNull(costCalculator, "costCalculator is null");
             this.dynamicFilterService = requireNonNull(dynamicFilterService, "dynamicFilterService is null");
-            this.dynamicJoinPushdownService = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
+            this.dynamicJoinPushdownServices = requireNonNull(dynamicJoinPushdownServices, "dynamicJoinPushdownService is null");
 
             checkArgument(scheduleSplitBatchSize > 0, "scheduleSplitBatchSize must be greater than 0");
             this.scheduleSplitBatchSize = scheduleSplitBatchSize;
@@ -550,7 +552,7 @@ public class SqlQueryExecution
                 executionPolicy,
                 schedulerStats,
                 dynamicFilterService,
-                dynamicJoinPushdownService);
+                dynamicJoinPushdownServices);
 
         queryScheduler.set(scheduler);
 
@@ -805,9 +807,13 @@ public class SqlQueryExecution
         {
             String executionPolicyName = SystemSessionProperties.getExecutionPolicy(stateMachine.getSession());
             int scheduleSplitBatchSize = SystemSessionProperties.getScheduleSplitBatchSize(stateMachine.getSession());
+            int probeInterval = SystemSessionProperties.getDynamicJoinProbeInterval(stateMachine.getSession());
+            int probeBatchSize = SystemSessionProperties.getDynamicJoinProbeBatchSize(stateMachine.getSession());
+            FeaturesConfig.ElasticJoinType elasticJoinType = SystemSessionProperties.getElasticJoinType(stateMachine.getSession());
             ExecutionPolicy executionPolicy = executionPolicies.get(executionPolicyName);
             checkArgument(executionPolicy != null, "No execution policy %s", executionPolicyName);
-            DynamicJoinPushdownService dynamicJoinPushdownService = new DynamicJoinPushdownService(SystemSessionProperties.getElasticJoinType(stateMachine.getSession()));
+            DynamicJoinPushdownService.setSchedulingParameters(elasticJoinType, probeInterval, probeBatchSize, scheduleSplitBatchSize);
+            Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices = new HashMap<>();
 
             return new SqlQueryExecution(
                     preparedQuery,
@@ -835,7 +841,7 @@ public class SqlQueryExecution
                     statsCalculator,
                     costCalculator,
                     dynamicFilterService,
-                    dynamicJoinPushdownService,
+                    dynamicJoinPushdownServices,
                     warningCollector);
         }
     }

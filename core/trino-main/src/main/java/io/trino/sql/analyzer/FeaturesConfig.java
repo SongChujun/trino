@@ -77,6 +77,10 @@ public class FeaturesConfig
     private double elasticJoinLeftPushdownRatio = 0.5;
     private int scheduleSplitBatchSize = 3;
 
+    private int dynamicJoinProbeInterval = 5;
+
+    private int dynamicJoinProbeBatchSize = 1;
+
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
     private boolean dynamicScheduleForGroupedExecution;
@@ -338,6 +342,30 @@ public class FeaturesConfig
     public FeaturesConfig setScheduleSplitBatchSize(int scheduleSplitBatchSize)
     {
         this.scheduleSplitBatchSize = scheduleSplitBatchSize;
+        return this;
+    }
+
+    public int getDynamicJoinProbeInterval()
+    {
+        return dynamicJoinProbeInterval;
+    }
+
+    @Config("dynamic-join-probe-interval")
+    public FeaturesConfig setDynamicJoinProbeInterval(int dynamicJoinProbeInterval)
+    {
+        this.dynamicJoinProbeInterval = dynamicJoinProbeInterval;
+        return this;
+    }
+
+    public int getDynamicJoinProbeBatchSize()
+    {
+        return dynamicJoinProbeBatchSize;
+    }
+
+    @Config("dynamic-join-probe-batch-size")
+    public FeaturesConfig setDynamicJoinProbeBatchSize(int dynamicJoinProbeBatchSize)
+    {
+        this.dynamicJoinProbeBatchSize = dynamicJoinProbeBatchSize;
         return this;
     }
 

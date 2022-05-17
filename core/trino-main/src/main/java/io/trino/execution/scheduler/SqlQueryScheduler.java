@@ -124,7 +124,7 @@ public class SqlQueryScheduler
     private final boolean summarizeTaskInfo;
     private final DynamicFilterService dynamicFilterService;
 
-    private final DynamicJoinPushdownService dynamicJoinPushdownService;
+    private final Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices;
     private final AtomicBoolean started = new AtomicBoolean();
 
     public static SqlQueryScheduler createSqlQueryScheduler(
@@ -144,7 +144,7 @@ public class SqlQueryScheduler
             ExecutionPolicy executionPolicy,
             SplitSchedulerStats schedulerStats,
             DynamicFilterService dynamicFilterService,
-            DynamicJoinPushdownService dynamicJoinPushdownService)
+            Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices)
     {
         SqlQueryScheduler sqlQueryScheduler = new SqlQueryScheduler(
                 queryStateMachine,
@@ -163,7 +163,7 @@ public class SqlQueryScheduler
                 executionPolicy,
                 schedulerStats,
                 dynamicFilterService,
-                dynamicJoinPushdownService);
+                dynamicJoinPushdownServices);
         sqlQueryScheduler.initialize();
         return sqlQueryScheduler;
     }
@@ -185,14 +185,14 @@ public class SqlQueryScheduler
             ExecutionPolicy executionPolicy,
             SplitSchedulerStats schedulerStats,
             DynamicFilterService dynamicFilterService,
-            DynamicJoinPushdownService dynamicJoinPushdownService)
+            Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownService)
     {
         this.queryStateMachine = requireNonNull(queryStateMachine, "queryStateMachine is null");
         this.executionPolicy = requireNonNull(executionPolicy, "executionPolicy is null");
         this.schedulerStats = requireNonNull(schedulerStats, "schedulerStats is null");
         this.summarizeTaskInfo = summarizeTaskInfo;
         this.dynamicFilterService = requireNonNull(dynamicFilterService, "dynamicFilterService is null");
-        this.dynamicJoinPushdownService = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
+        this.dynamicJoinPushdownServices = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
 
         // todo come up with a better way to build this, or eliminate this map
         ImmutableMap.Builder<StageId, StageScheduler> stageSchedulers = ImmutableMap.builder();
@@ -377,7 +377,7 @@ public class SqlQueryScheduler
                     placementPolicy,
                     splitBatchSize,
                     dynamicFilterService,
-                    dynamicJoinPushdownService,
+                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, k -> new DynamicJoinPushdownService()),
                     () -> childStages.stream().anyMatch(SqlStageExecution::isAnyTaskBlocked)));
         }
         else if (partitioningHandle.equals(SCALED_WRITER_DISTRIBUTION)) {
@@ -457,7 +457,7 @@ public class SqlQueryScheduler
                         nodeScheduler.createNodeSelector(session, catalogName),
                         connectorPartitionHandles,
                         dynamicFilterService,
-                        dynamicJoinPushdownService));
+                        dynamicJoinPushdownServices));
             }
             else {
                 // all sources are remote

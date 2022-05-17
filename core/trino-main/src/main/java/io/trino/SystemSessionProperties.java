@@ -131,6 +131,10 @@ public final class SystemSessionProperties
     public static final String ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO = "elastic_join_left_pushdown_ratio";
     public static final String ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO = "elastic_join_right_pushdown_ratio";
     public static final String SCHEDULE_SPLIT_BATCH_SIZE = "schedule_split_batch_size";
+
+    public static final String DYNAMIC_JOIN_PROBE_INTERVAL = "dynamic_join_probe_interval";
+
+    public static final String DYNAMIC_JOIN_PROBE_BATCH_SIZE = "dynamic_join_probe_batch_size";
     public static final String PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES = "predicate_pushdown_use_table_properties";
     public static final String LATE_MATERIALIZATION = "late_materialization";
     public static final String ENABLE_DYNAMIC_FILTERING = "enable_dynamic_filtering";
@@ -599,6 +603,16 @@ public final class SystemSessionProperties
                         SCHEDULE_SPLIT_BATCH_SIZE,
                         "schedule split batch size",
                         featuresConfig.getScheduleSplitBatchSize(),
+                        false),
+                integerProperty(
+                        DYNAMIC_JOIN_PROBE_INTERVAL,
+                        "dynamic join probe interval",
+                        featuresConfig.getDynamicJoinProbeInterval(),
+                        false),
+                integerProperty(
+                        DYNAMIC_JOIN_PROBE_BATCH_SIZE,
+                        "dynamic join probe batch size",
+                        featuresConfig.getDynamicJoinProbeBatchSize(),
                         false),
                 booleanProperty(
                         PREDICATE_PUSHDOWN_USE_TABLE_PROPERTIES,
@@ -1139,6 +1153,16 @@ public final class SystemSessionProperties
     public static int getScheduleSplitBatchSize(Session session)
     {
         return session.getSystemProperty(SCHEDULE_SPLIT_BATCH_SIZE, Integer.class);
+    }
+
+    public static int getDynamicJoinProbeInterval(Session session)
+    {
+        return session.getSystemProperty(DYNAMIC_JOIN_PROBE_INTERVAL, Integer.class);
+    }
+
+    public static int getDynamicJoinProbeBatchSize(Session session)
+    {
+        return session.getSystemProperty(DYNAMIC_JOIN_PROBE_BATCH_SIZE, Integer.class);
     }
 
     public static boolean isPredicatePushdownUseTableProperties(Session session)
