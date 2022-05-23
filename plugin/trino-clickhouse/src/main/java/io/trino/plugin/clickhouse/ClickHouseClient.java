@@ -201,7 +201,8 @@ public class ClickHouseClient
 //        String sql = format("select partition, name from system.parts where table = '%s' and database = '%s'",
 //                (tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()), (tableHandle.getRequiredNamedRelation().getSchemaTableName().getSchemaName()));
 
-        String sql = format("select partition, name from system.parts where table = '%s'", (tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()));
+        String sql = format("select partition, name from system.parts where table = '%s' and database = '%s'", (tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()),
+                (tableHandle.getRequiredNamedRelation().getSchemaTableName().getSchemaName()));
 
         ImmutableList.Builder<JdbcSplit> res = new ImmutableList.Builder<>();
         ImmutableSet.Builder<String> partitions = new ImmutableSet.Builder<>();
