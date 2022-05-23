@@ -562,9 +562,9 @@ public class PagesIndex
             this.addPage(page);
         }
         if (!(mode == SortOperator.SortOperatorFactory.Mode.STATIC && sortedGroups.size() == 1)) {
-            log.debug("Merge %d sorting groups of size %d on %d ", sortedGroups.size(), this.getPositionCount(), this.hashCode());
+            long timeNow = System.nanoTime();
             LongArrayList newValueAddress = this.mergePages(sortedGroups);
-            log.debug("Merge done on %d", this.hashCode());
+            log.debug("Merge %d sorting groups of size %d on %d take %.3f s", sortedGroups.size(), this.getPositionCount(), this.hashCode(), (System.nanoTime() - timeNow) / 1_000_000_000.0);
             valueAddresses.removeElements(valueAddresses.size() - newValueAddress.size(), valueAddresses.size());
             valueAddresses.addAll(newValueAddress);
         }

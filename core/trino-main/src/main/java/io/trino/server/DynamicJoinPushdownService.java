@@ -154,9 +154,14 @@ public class DynamicJoinPushdownService
         }
     }
 
+    public boolean dynamicExecutionEnabled()
+    {
+        return elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC;
+    }
+
     public boolean checkCouldSchedule(StageId stageId)
     {
-        if (elasticJoinType != FeaturesConfig.ElasticJoinType.DYNAMIC) {
+        if (!dynamicExecutionEnabled()) {
             return true;
         }
 
@@ -184,7 +189,7 @@ public class DynamicJoinPushdownService
 
     public int getSchedulingBatchSize()
     {
-        if (dynamicSchedulingState == DynamicSchedulingState.PROBE) {
+        if ((dynamicExecutionEnabled()) && (dynamicSchedulingState == DynamicSchedulingState.PROBE)) {
             return probeBatchSize;
         }
         else {
@@ -204,6 +209,9 @@ public class DynamicJoinPushdownService
 
     public void scheduleSplits(StageId stageId, Multimap<InternalNode, Split> splitAssignment)
     {
+        if (!dynamicExecutionEnabled()) {
+            return;
+        }
         if (splitAssignment.isEmpty()) {
             return;
         }
@@ -221,6 +229,9 @@ public class DynamicJoinPushdownService
 
     public void acknowledge(StageId stageId, NodeTaskMap nodeTaskMap)
     {
+        if (!dynamicExecutionEnabled()) {
+            return;
+        }
         List<String> acknowledgedSplits = stageSplitsTracker.computeIfAbsent(stageId, k -> new SplitsTracker()).acknowledge(nodeTaskMap);
         stageAcknowledgedSplits.computeIfAbsent(stageId, k -> new HashSet<>()).addAll(acknowledgedSplits);
         if (!acknowledgedSplits.isEmpty() && !probeSplitsMap.get(stageId).isEmpty() && (dynamicSchedulingState == DynamicSchedulingState.PROBE)) {
@@ -241,6 +252,9 @@ public class DynamicJoinPushdownService
 
     public void setProbeSplits(StageId stageId, List<Split> splits)
     {
+        if (!dynamicExecutionEnabled()) {
+            return;
+        }
         List<String> probeSplits = probeSplitsMap.computeIfAbsent(stageId, k -> new ArrayList<>());
         probeSplits.addAll(splits.stream().map(s -> s.getConnectorSplit().getIdentifier()).collect(Collectors.toList()));
     }
@@ -252,6 +266,6 @@ public class DynamicJoinPushdownService
 
     public boolean isNoMoreSplits()
     {
-        return (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC) && this.noMoreSplits;
+        return dynamicExecutionEnabled() && this.noMoreSplits;
     }
 }

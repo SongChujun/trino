@@ -151,6 +151,7 @@ public class JdbcRecordCursor
                     // statement.executeQuery() may block uninterruptedly, using async way so we are able to cancel remote query
                     // See javadoc of java.sql.Connection.setNetworkTimeout
                     resultSet = resultSetFuture.get();
+                    log.debug("resultSet for %s get", statement.toString());
                 }
                 catch (ExecutionException e) {
                     if (e.getCause() instanceof SQLException) {

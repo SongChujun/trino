@@ -67,7 +67,7 @@ public class TaskManagerConfig
 
     private int writerCount = 1;
     private int taskConcurrency = 16;
-    private int pagesSortBatchSize = 16;
+    private int pagesSortBatchSize = -1;
     private int httpResponseThreads = 100;
     private int httpTimeoutThreads = 3;
 
@@ -392,7 +392,7 @@ public class TaskManagerConfig
         return this;
     }
 
-    @Min(1)
+    @Min(-1)
     @NotNull
     public int getPagesSortBatchSize()
     {

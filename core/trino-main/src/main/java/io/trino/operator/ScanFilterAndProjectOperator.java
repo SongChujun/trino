@@ -325,8 +325,9 @@ public class ScanFilterAndProjectOperator
             if (!finished) {
                 CursorProcessorOutput output = cursorProcessor.process(session.toConnectorSession(), yieldSignal, cursor, pageBuilder);
                 pageSourceMemoryContext.setBytes(cursor.getSystemMemoryUsage());
-
                 processedPositions += output.getProcessedRows();
+//                log.error("generate %d entries on split %s",output.getProcessedRows(), splitIdentifier);
+
                 // TODO: derive better values for cursors
                 processedBytes = cursor.getCompletedBytes();
                 physicalBytes = cursor.getCompletedBytes();

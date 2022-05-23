@@ -277,7 +277,7 @@ public class SourcePartitionedScheduler
                     SplitBatch nextSplits = getFutureValue(scheduleGroup.nextSplitBatchFuture);
                     scheduleGroup.nextSplitBatchFuture = null;
                     pendingSplits.addAll(nextSplits.getSplits());
-                    if (dynamicSchedulingState.equals(DynamicJoinPushdownService.DynamicSchedulingState.PROBE)) {
+                    if (dynamicJoinPushdownService.dynamicExecutionEnabled() && dynamicSchedulingState.equals(DynamicJoinPushdownService.DynamicSchedulingState.PROBE)) {
                         checkState(nextSplits.getSplits().size() <= dynamicJoinPushdownService.getProbeBatchSize());
                         dynamicJoinPushdownService.setProbeSplits(stage.getStageId(), nextSplits.getSplits());
                     }
