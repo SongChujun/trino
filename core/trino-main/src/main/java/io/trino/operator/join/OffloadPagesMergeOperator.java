@@ -28,7 +28,11 @@ import io.trino.spi.type.Type;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.type.BlockTypeOperators;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -131,6 +135,8 @@ public class OffloadPagesMergeOperator
     private final SortOperator.SortOperatorFactory.Mode mode;
     private boolean resultMerged;
 
+    private final ExecutorService executor;
+
     public OffloadPagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
             List<Integer> rightMergeChannels,
@@ -153,6 +159,7 @@ public class OffloadPagesMergeOperator
                 leftPagesIndexComparator, rightPagesIndexComparator, sortFinishedFuture, joinEqualOperators, pageBuilder);
         this.mode = mode;
         this.resultMerged = false;
+        this.executor = Executors.newFixedThreadPool(2);
     }
 
     @Override
@@ -195,13 +202,44 @@ public class OffloadPagesMergeOperator
     public Page getOutput()
     {
         if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || ((mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) && !resultMerged)) {
-            leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex, mode);
-            rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex, mode);
+            List<Callable<Integer>> mergeTasks = new ArrayList<>();
+            mergeTasks.add(new MergeTask(leftUpSortedPagesIndex, leftDownSortedPagesIndex, mode));
+            mergeTasks.add(new MergeTask(rightUpSortedPagesIndex, rightDownSortedPagesIndex, mode));
+            try {
+                executor.invokeAll(mergeTasks);
+            }
+            catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
             leftDownSortedPagesIndex.clear();
             rightDownSortedPagesIndex.clear();
             resultMerged = true;
         }
         return pagesMergeOperator.getOutput();
+    }
+
+    private static class MergeTask
+            implements Callable<Integer>
+    {
+        PagesIndex leftPagesIndex;
+
+        PagesIndex rightPagesIndex;
+
+        SortOperator.SortOperatorFactory.Mode mode;
+
+        public MergeTask(PagesIndex leftPagesIndex, PagesIndex rightPagesIndex, SortOperator.SortOperatorFactory.Mode mode)
+        {
+            this.leftPagesIndex = leftPagesIndex;
+            this.rightPagesIndex = rightPagesIndex;
+            this.mode = mode;
+        }
+
+        @Override
+        public Integer call()
+        {
+            leftPagesIndex.mergePagesIndex(rightPagesIndex, mode);
+            return 1;
+        }
     }
 
     @Override
