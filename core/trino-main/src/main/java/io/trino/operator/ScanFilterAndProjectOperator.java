@@ -341,14 +341,20 @@ public class ScanFilterAndProjectOperator
                 // only return a page if buffer is full or cursor has finished
                 Page page = pageBuilder.build();
                 String[] splitIdentifiers = cursor.getSplitIdentifier().split("_");
+
                 String tableName = splitIdentifiers[0];
-                String splitIdentifier = splitIdentifiers[1];
+                String splitIdentifier = null;
+                if (splitIdentifiers.length > 1) {
+                    splitIdentifier = splitIdentifiers[1];
+                }
                 boolean isFinished = false;
-                if (finished) {
+                if (finished && splitIdentifiers.length > 1) {
                     isFinished = true;
                     log.debug("read split finished: " + splitIdentifiers[0] + "_" + splitIdentifiers[1]);
                 }
-                page.setSplitIdentifier(splitIdentifier, tableName, isFinished);
+                if (splitIdentifiers.length > 1) {
+                    page.setSplitIdentifier(splitIdentifier, tableName, isFinished);
+                }
                 pageBuilder.reset();
                 outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
                 return ProcessState.ofResult(page);

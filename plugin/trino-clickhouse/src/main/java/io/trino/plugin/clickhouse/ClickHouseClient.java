@@ -167,7 +167,7 @@ public class ClickHouseClient
         // fetch-size is ignored when connection is in auto-commit
         connection.setAutoCommit(false);
         PreparedStatement statement = connection.prepareStatement(sql);
-        statement.setFetchSize(100000);
+        statement.setFetchSize(10000000);
         return statement;
     }
 
@@ -357,6 +357,64 @@ public class ClickHouseClient
         catch (SQLException e) {
             throw new TrinoException(JDBC_ERROR, e);
         }
+    }
+
+    @Override
+    public List<Object> getNthPercentile(ConnectorSession session, JdbcTableHandle handle, JdbcColumnHandle column)
+    {
+        String sql = format("select min(%s) as minV, max(%s) as maxV\n" +
+                        "from %s",
+                quoted(column.getColumnName()),
+                quoted(column.getColumnName()),
+                quoted(handle.getRequiredNamedRelation().getRemoteTableName()));
+
+        ImmutableList.Builder<Object> res = new ImmutableList.Builder<>();
+
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+//                        res.put(resultSet.getInt("minV"), resultSet.getObject("min"));
+                        res.add(resultSet.getInt("minV"));
+                        res.add(resultSet.getInt("maxV"));
+                    }
+                }
+                return res.build();
+            }
+        }
+        catch (Exception e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+    }
+
+    @Override
+    public List<String> getPrimaryKeyColumns(ConnectorSession session, JdbcTableHandle tableHandle)
+    {
+//        "select primary_key from system.tables where database = 'single_column' and name = 'orders';\n"
+        String sql = format("select primary_key from \"system\".\"tables\" where database = %s and name = %s;",
+                single_quoted(tableHandle.getRequiredNamedRelation().getSchemaTableName().getSchemaName()),
+                single_quoted(tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName()));
+        ImmutableList.Builder<String> res = new ImmutableList.Builder<>();
+
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    while (resultSet.next()) {
+//                        res.put(resultSet.getInt("minV"), resultSet.getObject("min"));
+                        res.add(resultSet.getString("primary_key"));
+                    }
+                }
+                return res.build();
+            }
+        }
+        catch (Exception e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+    }
+
+    private String single_quoted(String value)
+    {
+        return "'" + value + "'";
     }
 
     @Override

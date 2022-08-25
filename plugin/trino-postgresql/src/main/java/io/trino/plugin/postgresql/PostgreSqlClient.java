@@ -440,7 +440,7 @@ public class PostgreSqlClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.POSTGRESQL));
+                split.isPresent() && !split.get().getAdditionalPredicate().isEmpty() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.POSTGRESQL));
     }
 
     @Override
