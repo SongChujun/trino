@@ -463,7 +463,7 @@ public class PostgreSqlClient
                             partitioned = true;
                         }
                         else {
-                            res.add(new JdbcSplit(tableHandle.getRequiredNamedRelation().getSchemaTableName().getTableName() + "_" + name));
+                            res.add(new JdbcSplit(convertIdentifier(name)));
                         }
                     }
                 }
@@ -478,6 +478,11 @@ public class PostgreSqlClient
         else {
             return new FixedSplitSource((res.build()));
         }
+    }
+
+    private String convertIdentifier(String name)
+    {
+        return name.replace("partition", "");
     }
 
     private static Map<String, Integer> getArrayColumnDimensions(Connection connection, JdbcTableHandle tableHandle)

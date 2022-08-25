@@ -307,7 +307,7 @@ public class QueryBuilder
         if (baseRelation instanceof JdbcNamedRelationHandle) {
             if (!additionalPredicate.isEmpty() && dataSource.equals(Datasource.POSTGRESQL)) {
                 RemoteTableName remoteTableName = ((JdbcNamedRelationHandle) baseRelation).getRemoteTableName();
-                RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), additionalPredicate);
+                RemoteTableName partitionedRemoteTableName = new RemoteTableName(remoteTableName.getCatalogName(), remoteTableName.getSchemaName(), remoteTableName.getTableName() + "_partition" + additionalPredicate);
                 return " FROM " + getRelation(partitionedRemoteTableName);
             }
             return " FROM " + getRelation(((JdbcNamedRelationHandle) baseRelation).getRemoteTableName());
