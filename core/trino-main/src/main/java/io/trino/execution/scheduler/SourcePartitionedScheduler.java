@@ -59,6 +59,7 @@ import static io.trino.execution.scheduler.ScheduleResult.BlockedReason.NO_ACTIV
 import static io.trino.execution.scheduler.ScheduleResult.BlockedReason.SPLIT_QUEUES_FULL;
 import static io.trino.execution.scheduler.ScheduleResult.BlockedReason.WAITING_FOR_SOURCE;
 import static io.trino.spi.connector.NotPartitionedPartitionHandle.NOT_PARTITIONED;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 public class SourcePartitionedScheduler
@@ -100,6 +101,8 @@ public class SourcePartitionedScheduler
     private final BooleanSupplier anySourceTaskBlocked;
     private final Map<Lifespan, ScheduleGroup> scheduleGroups = new HashMap<>();
     private boolean noMoreScheduleGroups;
+
+    private boolean atLeastOneSplitAdded;
     private State state = State.INITIALIZED;
     private SettableFuture<?> whenFinishedOrNewLifespanAdded = SettableFuture.create();
 
@@ -122,6 +125,7 @@ public class SourcePartitionedScheduler
         this.splitPlacementPolicy = requireNonNull(splitPlacementPolicy, "splitPlacementPolicy is null");
         this.dynamicFilterService = requireNonNull(dynamicFilterService, "dynamicFilterService is null");
         this.dynamicJoinPushdownService = requireNonNull(dynamicJoinPushdownService, "dynamicJoinPushdownService is null");
+        this.dynamicJoinPushdownService.setUpOrDownStageId(stage);
         this.anySourceTaskBlocked = requireNonNull(anySourceTaskBlocked, "anySourceTaskBlocked is null");
 
         checkArgument(splitBatchSize > 0, "splitBatchSize must be at least one");
@@ -254,6 +258,7 @@ public class SourcePartitionedScheduler
             Lifespan lifespan = entry.getKey();
             ScheduleGroup scheduleGroup = entry.getValue();
             Set<Split> pendingSplits = scheduleGroup.pendingSplits;
+
             if (enableDynamicJoinPushdDown) {
                 dynamicJoinPushdownService.acknowledge(stage.getStageId(), stage.getNodeTaskMap());
             }
@@ -261,47 +266,51 @@ public class SourcePartitionedScheduler
             if (scheduleGroup.state == ScheduleGroupState.NO_MORE_SPLITS || scheduleGroup.state == ScheduleGroupState.DONE) {
                 verify(scheduleGroup.nextSplitBatchFuture == null);
             }
-            else if (pendingSplits.isEmpty() && (!enableDynamicJoinPushdDown || dynamicJoinPushdownService.checkCouldSchedule(stage.getStageId()))) {
-                DynamicJoinPushdownService.DynamicSchedulingState dynamicSchedulingState = dynamicJoinPushdownService.getDynamicSchedulingState();
-
-                // try to get the next batch
-                if (scheduleGroup.nextSplitBatchFuture == null) {
-                    int schedulingBatchSize = dynamicJoinPushdownService.getSchedulingBatchSize();
-                    scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, schedulingBatchSize - pendingSplits.size());
-
-                    long start = System.nanoTime();
-                    addSuccessCallback(scheduleGroup.nextSplitBatchFuture, () -> stage.recordGetSplitTime(start));
+            else if (pendingSplits.isEmpty()) {
+                if (!atLeastOneSplitAdded && enableDynamicJoinPushdDown) {
+                    pendingSplits.add(new Split(
+                            splitSource.getCatalogName(),
+                            new EmptySplit(splitSource.getCatalogName()),
+                            lifespan));
+                    dynamicJoinPushdownService.setInitialWinningStageId();
+                    atLeastOneSplitAdded = true;
                 }
+                if (!enableDynamicJoinPushdDown || dynamicJoinPushdownService.checkCouldSchedule(stage.getStageId())) {
+                    // try to get the next batch
+                    if (scheduleGroup.nextSplitBatchFuture == null) {
+                        int schedulingBatchSize = dynamicJoinPushdownService.getSchedulingBatchSize();
+                        scheduleGroup.nextSplitBatchFuture = splitSource.getNextBatch(scheduleGroup.partitionHandle, lifespan, schedulingBatchSize - toIntExact(pendingSplits.stream().filter(s -> !(s.getConnectorSplit() instanceof EmptySplit)).count()));
 
-                if (scheduleGroup.nextSplitBatchFuture.isDone()) {
-                    SplitBatch nextSplits = getFutureValue(scheduleGroup.nextSplitBatchFuture);
-                    scheduleGroup.nextSplitBatchFuture = null;
-                    pendingSplits.addAll(nextSplits.getSplits());
-                    if (dynamicJoinPushdownService.dynamicExecutionEnabled() && dynamicSchedulingState.equals(DynamicJoinPushdownService.DynamicSchedulingState.PROBE)) {
-                        checkState(nextSplits.getSplits().size() <= dynamicJoinPushdownService.getProbeBatchSize());
-                        dynamicJoinPushdownService.setProbeSplits(stage.getStageId(), nextSplits.getSplits());
+                        long start = System.nanoTime();
+                        addSuccessCallback(scheduleGroup.nextSplitBatchFuture, () -> stage.recordGetSplitTime(start));
                     }
-                    if (nextSplits.isLastBatch()) {
-                        if (scheduleGroup.state == ScheduleGroupState.INITIALIZED && pendingSplits.isEmpty()) {
-                            // Add an empty split in case no splits have been produced for the source.
-                            // For source operators, they never take input, but they may produce output.
-                            // This is well handled by the execution engine.
-                            // However, there are certain non-source operators that may produce output without any input,
-                            // for example, 1) an AggregationOperator, 2) a HashAggregationOperator where one of the grouping sets is ().
-                            // Scheduling an empty split kicks off necessary driver instantiation to make this work.
-                            pendingSplits.add(new Split(
-                                    splitSource.getCatalogName(),
-                                    new EmptySplit(splitSource.getCatalogName()),
-                                    lifespan));
+
+                    if (scheduleGroup.nextSplitBatchFuture.isDone()) {
+                        SplitBatch nextSplits = getFutureValue(scheduleGroup.nextSplitBatchFuture);
+                        scheduleGroup.nextSplitBatchFuture = null;
+                        pendingSplits.addAll(nextSplits.getSplits());
+                        if (nextSplits.isLastBatch()) {
+                            if (scheduleGroup.state == ScheduleGroupState.INITIALIZED && pendingSplits.isEmpty()) {
+                                // Add an empty split in case no splits have been produced for the source.
+                                // For source operators, they never take input, but they may produce output.
+                                // This is well handled by the execution engine.
+                                // However, there are certain non-source operators that may produce output without any input,
+                                // for example, 1) an AggregationOperator, 2) a HashAggregationOperator where one of the grouping sets is ().
+                                // Scheduling an empty split kicks off necessary driver instantiation to make this work.
+                                pendingSplits.add(new Split(
+                                        splitSource.getCatalogName(),
+                                        new EmptySplit(splitSource.getCatalogName()),
+                                        lifespan));
+                            }
+                            scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
+                            dynamicJoinPushdownService.setNoMoreSplits();
                         }
-                        scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
-                        dynamicJoinPushdownService.setNoMoreSplits();
                     }
-                }
-                else {
-                    overallBlockedFutures.add(scheduleGroup.nextSplitBatchFuture);
-                    anyBlockedOnNextSplitBatch = true;
-                    continue;
+                    else {
+                        overallBlockedFutures.add(scheduleGroup.nextSplitBatchFuture);
+                        anyBlockedOnNextSplitBatch = true;
+                        continue;
+                    }
                 }
             }
 

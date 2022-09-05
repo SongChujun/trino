@@ -75,11 +75,9 @@ public class FeaturesConfig
     private ElasticJoinType elasticJoinType = ElasticJoinType.OFFLOAD;
     private double elasticJoinRightPushdownRatio = 0.5;
     private double elasticJoinLeftPushdownRatio = 0.5;
-    private int scheduleSplitBatchSize = 3;
+    private int scheduleSplitBatchSize = 5;
 
-    private int dynamicJoinProbeInterval = 5;
-
-    private int dynamicJoinProbeBatchSize = 1;
+    private double dynamicJoinDbNodePressureThreshold = 0.9;
 
     private boolean colocatedJoinsEnabled;
     private boolean groupedExecutionEnabled;
@@ -345,27 +343,15 @@ public class FeaturesConfig
         return this;
     }
 
-    public int getDynamicJoinProbeInterval()
+    public double getDynamicJoinDbNodePressureThreshold()
     {
-        return dynamicJoinProbeInterval;
+        return dynamicJoinDbNodePressureThreshold;
     }
 
-    @Config("dynamic-join-probe-interval")
-    public FeaturesConfig setDynamicJoinProbeInterval(int dynamicJoinProbeInterval)
+    @Config("dynamic-join-dbnode-pressure-threshold")
+    public FeaturesConfig setDynamicJoinDbNodePressureThreshold(double dynamicJoinPushDownThreshold)
     {
-        this.dynamicJoinProbeInterval = dynamicJoinProbeInterval;
-        return this;
-    }
-
-    public int getDynamicJoinProbeBatchSize()
-    {
-        return dynamicJoinProbeBatchSize;
-    }
-
-    @Config("dynamic-join-probe-batch-size")
-    public FeaturesConfig setDynamicJoinProbeBatchSize(int dynamicJoinProbeBatchSize)
-    {
-        this.dynamicJoinProbeBatchSize = dynamicJoinProbeBatchSize;
+        this.dynamicJoinDbNodePressureThreshold = dynamicJoinPushDownThreshold;
         return this;
     }
 

@@ -80,6 +80,15 @@ public final class SqlStageExecution
     private final DynamicFilterService dynamicFilterService;
     private boolean enableDynamicJoinPushDown;
 
+    private StagePlacement stagePlacement;
+
+    public enum StagePlacement
+    {
+        UP,
+        DOWN,
+        NONE
+    }
+
     private final Map<PlanFragmentId, RemoteSourceNode> exchangeSources;
 
     private final Map<InternalNode, Set<RemoteTask>> tasks = new ConcurrentHashMap<>();
@@ -179,6 +188,16 @@ public final class SqlStageExecution
                 dynamicFilterService.stageCannotScheduleMoreTasks(stateMachine.getStageId(), getAllTasks().size());
             }
         });
+    }
+
+    public void setStagePlacement(StagePlacement stagePlacement)
+    {
+        this.stagePlacement = stagePlacement;
+    }
+
+    public StagePlacement getStagePlacement()
+    {
+        return stagePlacement;
     }
 
     public StageId getStageId()

@@ -127,8 +127,12 @@ import io.trino.type.InternalTypeManager;
 import javax.annotation.concurrent.GuardedBy;
 import javax.inject.Inject;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -221,6 +225,10 @@ public final class MetadataManager
     private final LoadingCache<OperatorCacheKey, ResolvedFunction> operatorCache;
     private final LoadingCache<CoercionCacheKey, ResolvedFunction> coercionCache;
 
+    private double dbNodeCPUPressure;
+
+    private BufferedReader br;
+
     @Inject
     public MetadataManager(
             FeaturesConfig featuresConfig,
@@ -287,6 +295,30 @@ public final class MetadataManager
                     Signature signature = new Signature(name, toType.getTypeSignature(), ImmutableList.of(fromType.getTypeSignature()));
                     return resolve(functionResolver.resolveCoercion(functions.get(QualifiedName.of(name)), signature));
                 }));
+
+        try {
+            this.br = new BufferedReader(
+                    new InputStreamReader(
+                            new Socket("dbNode", 8888).getInputStream()));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        Thread getDBNodeCPUPressureThread = new Thread(() -> {
+            String currentCpuPressure;
+            while (true) {
+                try {
+                    while ((currentCpuPressure = br.readLine()) != null) {
+                        dbNodeCPUPressure = Double.parseDouble(currentCpuPressure);
+                    }
+                }
+                catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+        getDBNodeCPUPressureThread.start();
     }
 
     public static MetadataManager createTestMetadataManager()
@@ -330,6 +362,12 @@ public final class MetadataManager
     public Set<ConnectorCapabilities> getConnectorCapabilities(Session session, CatalogName catalogName)
     {
         return getCatalogMetadata(session, catalogName).getConnectorCapabilities();
+    }
+
+    @Override
+    public double getDbNodeCPUPressure()
+    {
+        return dbNodeCPUPressure;
     }
 
     @Override

@@ -341,7 +341,7 @@ public class TestSourcePartitionedScheduler
                     new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                     2,
                     new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
-                    new DynamicJoinPushdownService(),
+                    new DynamicJoinPushdownService(metadata),
                     () -> false);
             scheduler.schedule();
         }).hasErrorCode(NO_NODES_AVAILABLE);
@@ -416,7 +416,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 500,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
-                new DynamicJoinPushdownService(),
+                new DynamicJoinPushdownService(metadata),
                 () -> false);
 
         // the queues of 3 running nodes should be full
@@ -456,7 +456,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 400,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
-                new DynamicJoinPushdownService(),
+                new DynamicJoinPushdownService(metadata),
                 () -> true);
 
         // the queues of 3 running nodes should be full
@@ -494,7 +494,7 @@ public class TestSourcePartitionedScheduler
                 new DynamicSplitPlacementPolicy(nodeScheduler.createNodeSelector(session, Optional.of(CONNECTOR_ID)), stage::getAllTasks),
                 2,
                 dynamicFilterService,
-                new DynamicJoinPushdownService(),
+                new DynamicJoinPushdownService(metadata),
                 () -> true);
 
         SymbolAllocator symbolAllocator = new SymbolAllocator();
@@ -560,7 +560,7 @@ public class TestSourcePartitionedScheduler
                 placementPolicy,
                 splitBatchSize,
                 new DynamicFilterService(metadata, typeOperators, new DynamicFilterConfig()),
-                new DynamicJoinPushdownService(),
+                new DynamicJoinPushdownService(metadata),
                 () -> false);
     }
 

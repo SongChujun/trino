@@ -158,6 +158,11 @@ public interface Metadata
         return ImmutableList.of();
     }
 
+    default double getDbNodeCPUPressure()
+    {
+        return 0.0;
+    }
+
     /**
      * Gets the metadata for the specified table column.
      *

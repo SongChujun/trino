@@ -121,7 +121,7 @@ public class FixedSourcePartitionedScheduler
                     Math.max(splitBatchSize / concurrentLifespans, 1),
                     groupedExecutionForScanNode,
                     dynamicFilterService,
-                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, key -> new DynamicJoinPushdownService()),
+                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, key -> new DynamicJoinPushdownService(dynamicFilterService.getMetadata())),
                     () -> true);
 
             if (stageExecutionDescriptor.isStageGroupedExecution() && !groupedExecutionForScanNode) {

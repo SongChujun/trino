@@ -51,7 +51,9 @@ import io.trino.sql.planner.NodePartitioningManager;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.StageExecutionPlan;
 import io.trino.sql.planner.plan.PlanFragmentId;
+import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.planner.plan.RemoteSourceNode;
 import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
 import java.net.URI;
@@ -323,6 +325,7 @@ public class SqlQueryScheduler
                 schedulerStats);
         if (parentStage.isPresent() && parentStage.get().getFragment().getRoot() instanceof SortMergeAdaptiveJoinNode) {
             stage.setEnableDynamicJoinPushDown(true);
+            setStagePlacement(stage, (SortMergeAdaptiveJoinNode) parentStage.get().getFragment().getRoot(), stage.getFragment().getId());
         }
         stages.add(stage);
 
@@ -377,7 +380,7 @@ public class SqlQueryScheduler
                     placementPolicy,
                     splitBatchSize,
                     dynamicFilterService,
-                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, k -> new DynamicJoinPushdownService()),
+                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, k -> new DynamicJoinPushdownService(dynamicFilterService.getMetadata())),
                     () -> childStages.stream().anyMatch(SqlStageExecution::isAnyTaskBlocked)));
         }
         else if (partitioningHandle.equals(SCALED_WRITER_DISTRIBUTION)) {
@@ -480,6 +483,24 @@ public class SqlQueryScheduler
         stageLinkages.put(stageId, new StageLinkage(plan.getFragment().getId(), parent, childStages));
 
         return stages.build();
+    }
+
+    private void setStagePlacement(SqlStageExecution stage, SortMergeAdaptiveJoinNode parent, PlanFragmentId me)
+    {
+        Function<PlanNode, Boolean> testSubFragmentTheSame = node -> {
+            PlanFragmentId subFragmentId = Iterables.getOnlyElement(((RemoteSourceNode) Iterables.getOnlyElement(node.getSources())).getSourceFragmentIds());
+            return subFragmentId.equals(me);
+        };
+
+        if (testSubFragmentTheSame.apply(parent.getLeftUp()) || testSubFragmentTheSame.apply(parent.getRightUp())) {
+            stage.setStagePlacement(SqlStageExecution.StagePlacement.UP);
+        }
+        else if (testSubFragmentTheSame.apply(parent.getLeftDown()) || testSubFragmentTheSame.apply(parent.getRightDown())) {
+            stage.setStagePlacement(SqlStageExecution.StagePlacement.DOWN);
+        }
+        else {
+            stage.setStagePlacement(SqlStageExecution.StagePlacement.NONE);
+        }
     }
 
     public BasicStageStats getBasicStageStats()

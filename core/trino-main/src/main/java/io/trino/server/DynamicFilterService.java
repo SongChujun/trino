@@ -160,6 +160,11 @@ public class DynamicFilterService
                 replicatedDynamicFilters));
     }
 
+    public Metadata getMetadata()
+    {
+        return metadata;
+    }
+
     public DynamicFiltersStats getDynamicFilteringStats(QueryId queryId, Session session)
     {
         DynamicFilterContext context = dynamicFilterContexts.get(queryId);

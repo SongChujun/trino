@@ -17,11 +17,14 @@ import com.google.common.collect.Multimap;
 import io.airlift.log.Logger;
 import io.trino.execution.NodeTaskMap;
 import io.trino.execution.RemoteTask;
+import io.trino.execution.SqlStageExecution;
 import io.trino.execution.StageId;
 import io.trino.metadata.InternalNode;
+import io.trino.metadata.Metadata;
 import io.trino.metadata.Split;
 import io.trino.server.remotetask.HttpRemoteTask;
 import io.trino.spi.Page;
+import io.trino.split.EmptySplit;
 import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
@@ -35,17 +38,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static com.google.common.base.Preconditions.checkState;
-
 public class DynamicJoinPushdownService
 {
-    public static int probeInterval;
-
-    public static int probeBatchSize;
-
-    public static int schedulingBatchSize;
+    public static int schedulingInterval;
 
     public static FeaturesConfig.ElasticJoinType elasticJoinType;
+
+    private static double dbNodePressureThreshold;
+
     private static final Logger log = Logger.get(DynamicJoinPushdownService.class);
 
     private static class SplitsTracker
@@ -106,50 +106,53 @@ public class DynamicJoinPushdownService
         }
     }
 
-    public enum DynamicSchedulingState
-    {
-        PROBE,
-        SCHEDULE,
-    }
-
     private Optional<StageId> winnerStageId = Optional.empty();
 
-    private int scheduledSplits;
+    private long scheduledSplits;
 
     private boolean noMoreSplits;
 
-    private DynamicSchedulingState dynamicSchedulingState = DynamicSchedulingState.PROBE;
+    private StageId upStageId;
+
+    private StageId downStageId;
 
     private final Map<StageId, SplitsTracker> stageSplitsTracker = new HashMap<>();
-
-    private Map<StageId, List<String>> probeSplitsMap = new HashMap<>();
 
     private Map<StageId, Set<String>> stageAcknowledgedSplits = new HashMap<>();
 
     private int schedulerRoundNumber;
 
-    private boolean allSplitsFromLastRoundFinished;
+    private Metadata metadata;
 
-    private Map<StageId, Integer> stageRoundNumberMap = new HashMap<>();
+    private boolean allSplitsFromThisRoundScheduled;
 
-    public DynamicJoinPushdownService()
+    public DynamicJoinPushdownService(Metadata metadata)
     {
+        this.metadata = metadata;
     }
 
-    public static void setSchedulingParameters(FeaturesConfig.ElasticJoinType elasticJoinType, int probeInterval, int probeBatchSize, int schedulingBatchSize)
+    public static void setSchedulingParameters(FeaturesConfig.ElasticJoinType elasticJoinType, int schedulingInterval, double dbNodePressureThreshold)
     {
-        DynamicJoinPushdownService.probeInterval = probeInterval;
-        DynamicJoinPushdownService.probeBatchSize = probeBatchSize;
         DynamicJoinPushdownService.elasticJoinType = elasticJoinType;
-        DynamicJoinPushdownService.schedulingBatchSize = schedulingBatchSize;
+        DynamicJoinPushdownService.schedulingInterval = schedulingInterval;
+        DynamicJoinPushdownService.dbNodePressureThreshold = dbNodePressureThreshold;
     }
 
-    private void addScheduledSplitCount(int count)
+    public void setUpOrDownStageId(SqlStageExecution stage)
+    {
+        if (stage.getStagePlacement().equals(SqlStageExecution.StagePlacement.UP)) {
+            this.upStageId = stage.getStageId();
+        }
+        else if (stage.getStagePlacement().equals(SqlStageExecution.StagePlacement.DOWN)) {
+            this.downStageId = stage.getStageId();
+        }
+    }
+
+    private void addScheduledSplitCount(long count)
     {
         this.scheduledSplits = this.scheduledSplits + count;
-        if (this.scheduledSplits % probeInterval == 0) {
-            dynamicSchedulingState = DynamicSchedulingState.PROBE;
-            allSplitsFromLastRoundFinished = false;
+        if (this.scheduledSplits % schedulingInterval == 0) {
+            allSplitsFromThisRoundScheduled = true;
             log.debug("Probe round started");
         }
     }
@@ -159,23 +162,39 @@ public class DynamicJoinPushdownService
         return elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC;
     }
 
+    public void setInitialWinningStageId()
+    {
+        if (metadata.getDbNodeCPUPressure() >= dbNodePressureThreshold) {
+            winnerStageId = Optional.of(upStageId);
+        }
+        else {
+            winnerStageId = Optional.of(downStageId);
+        }
+    }
+
     public boolean checkCouldSchedule(StageId stageId)
     {
         if (!dynamicExecutionEnabled()) {
             return true;
         }
 
-        int probeSplitScheduledCnt = probeSplitsMap.computeIfAbsent(stageId, k -> new ArrayList<>()).size();
-        if ((dynamicSchedulingState == DynamicSchedulingState.PROBE) && (probeSplitScheduledCnt < probeBatchSize)) {
-            if ((!allSplitsFromLastRoundFinished) && allSplitsFromBothStageFinished()) {
-                allSplitsFromLastRoundFinished = true;
-            }
-            if (allSplitsFromLastRoundFinished) {
-                log.debug("schedule probe split for stage %s", stageId);
-                return true;
-            }
+        if (!allSplitsFromThisRoundScheduled) {
+            return winnerStageId.isPresent() && winnerStageId.get().equals(stageId);
         }
-        if (dynamicSchedulingState == DynamicSchedulingState.SCHEDULE && winnerStageId.isPresent() && winnerStageId.get().equals(stageId)) {
+
+        if (!allSplitsFromBothStageFinished()) {
+            return false;
+        }
+
+        if (metadata.getDbNodeCPUPressure() >= dbNodePressureThreshold) {
+            winnerStageId = Optional.of(upStageId);
+        }
+        else {
+            winnerStageId = Optional.of(downStageId);
+        }
+
+        allSplitsFromThisRoundScheduled = false;
+        if (winnerStageId.get().equals(stageId)) {
             log.debug("schedule scheduling split for stage %s", stageId);
             return true;
         }
@@ -189,22 +208,7 @@ public class DynamicJoinPushdownService
 
     public int getSchedulingBatchSize()
     {
-        if ((dynamicExecutionEnabled()) && (dynamicSchedulingState == DynamicSchedulingState.PROBE)) {
-            return probeBatchSize;
-        }
-        else {
-            return schedulingBatchSize;
-        }
-    }
-
-    public int getProbeBatchSize()
-    {
-        return probeBatchSize;
-    }
-
-    public DynamicSchedulingState getDynamicSchedulingState()
-    {
-        return dynamicSchedulingState;
+        return schedulingInterval;
     }
 
     public void scheduleSplits(StageId stageId, Multimap<InternalNode, Split> splitAssignment)
@@ -215,16 +219,10 @@ public class DynamicJoinPushdownService
         if (splitAssignment.isEmpty()) {
             return;
         }
-        if (dynamicSchedulingState == DynamicSchedulingState.PROBE) {
-            int probeSplitScheduledCnt = probeSplitsMap.computeIfAbsent(stageId, k -> new ArrayList<>()).size();
-            checkState(probeSplitScheduledCnt <= probeBatchSize, "Probe split scheduled for stage %s", stageId);
-            checkState(splitAssignment.size() <= probeBatchSize, "Probe split batch size %s is not equal to probe batch size %s", splitAssignment.size(), probeBatchSize);
-        }
-        if (dynamicSchedulingState == DynamicSchedulingState.SCHEDULE) {
-            checkState(winnerStageId.isPresent() && winnerStageId.get().equals(stageId), "Winner stage %s not equal to stageId %s", winnerStageId.get(), stageId);
-        }
+
+//        checkState(winnerStageId.isPresent() && winnerStageId.get().equals(stageId), "Winner stage %s not equal to stageId %s", winnerStageId.get(), stageId);
         stageSplitsTracker.computeIfAbsent(stageId, k -> new SplitsTracker()).add(splitAssignment);
-        this.addScheduledSplitCount(splitAssignment.size());
+        this.addScheduledSplitCount(splitAssignment.values().stream().filter(s -> !(s.getConnectorSplit() instanceof EmptySplit)).count());
     }
 
     public void acknowledge(StageId stageId, NodeTaskMap nodeTaskMap)
@@ -234,29 +232,6 @@ public class DynamicJoinPushdownService
         }
         List<String> acknowledgedSplits = stageSplitsTracker.computeIfAbsent(stageId, k -> new SplitsTracker()).acknowledge(nodeTaskMap);
         stageAcknowledgedSplits.computeIfAbsent(stageId, k -> new HashSet<>()).addAll(acknowledgedSplits);
-        if (!acknowledgedSplits.isEmpty() && !probeSplitsMap.get(stageId).isEmpty() && (dynamicSchedulingState == DynamicSchedulingState.PROBE)) {
-            if (stageAcknowledgedSplits.get(stageId).containsAll(probeSplitsMap.get(stageId))) {
-                stageAcknowledgedSplits.get(stageId).clear();
-                probeSplitsMap.get(stageId).clear();
-                int stageRoundNumber = stageRoundNumberMap.computeIfAbsent(stageId, k -> 0) + 1;
-                stageRoundNumberMap.put(stageId, stageRoundNumber);
-                if (stageRoundNumber > schedulerRoundNumber) {
-                    log.debug("stage %s wins the probe", stageId);
-                    schedulerRoundNumber = stageRoundNumber;
-                    winnerStageId = Optional.of(stageId);
-                    dynamicSchedulingState = DynamicSchedulingState.SCHEDULE;
-                }
-            }
-        }
-    }
-
-    public void setProbeSplits(StageId stageId, List<Split> splits)
-    {
-        if (!dynamicExecutionEnabled()) {
-            return;
-        }
-        List<String> probeSplits = probeSplitsMap.computeIfAbsent(stageId, k -> new ArrayList<>());
-        probeSplits.addAll(splits.stream().map(s -> s.getConnectorSplit().getIdentifier()).collect(Collectors.toList()));
     }
 
     public void setNoMoreSplits()
