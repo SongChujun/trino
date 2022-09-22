@@ -128,6 +128,8 @@ public final class SystemSessionProperties
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
     public static final String USE_SIMPLE_JOIN = "use_simple_join";
     public static final String ELASTIC_JOIN_TYPE = "elastic_join_type";
+
+    public static final String DEFAULT_DYNAMIC_JOIN_PUSHDOWN_DIRECTION = "default_dynamic_join_pushdown_direction";
     public static final String ELASTIC_JOIN_LEFT_PUSHDOWN_RATIO = "elastic_join_left_pushdown_ratio";
     public static final String ELASTIC_JOIN_RIGHT_PUSHDOWN_RATIO = "elastic_join_right_pushdown_ratio";
     public static final String SCHEDULE_SPLIT_BATCH_SIZE = "schedule_split_batch_size";
@@ -197,6 +199,12 @@ public final class SystemSessionProperties
                         "elastic join type",
                         ElasticJoinType.class,
                         featuresConfig.getElasticJoinType(),
+                        false),
+                enumProperty(
+                        DEFAULT_DYNAMIC_JOIN_PUSHDOWN_DIRECTION,
+                        "default dynamic join pushdown direction",
+                        FeaturesConfig.DefaultDynamicJoinPushdownDirection.class,
+                        featuresConfig.getDefaultDynamicJoinPushdownDirection(),
                         false),
                 dataSizeProperty(
                         JOIN_MAX_BROADCAST_TABLE_SIZE,
@@ -727,6 +735,11 @@ public final class SystemSessionProperties
     public static ElasticJoinType getElasticJoinType(Session session)
     {
         return session.getSystemProperty(ELASTIC_JOIN_TYPE, ElasticJoinType.class);
+    }
+
+    public static FeaturesConfig.DefaultDynamicJoinPushdownDirection getDefaultDynamicJoinPushdownDirection(Session session)
+    {
+        return session.getSystemProperty(DEFAULT_DYNAMIC_JOIN_PUSHDOWN_DIRECTION, FeaturesConfig.DefaultDynamicJoinPushdownDirection.class);
     }
 
     public static DataSize getJoinMaxBroadcastTableSize(Session session)

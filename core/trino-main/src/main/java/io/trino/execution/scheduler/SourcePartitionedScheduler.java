@@ -95,7 +95,6 @@ public class SourcePartitionedScheduler
     private final SplitPlacementPolicy splitPlacementPolicy;
     private final PlanNodeId partitionedNode;
     private final boolean groupedExecution;
-    private final boolean enableDynamicJoinPushdDown;
     private final DynamicFilterService dynamicFilterService;
     private final DynamicJoinPushdownService dynamicJoinPushdownService;
     private final BooleanSupplier anySourceTaskBlocked;
@@ -130,7 +129,6 @@ public class SourcePartitionedScheduler
 
         checkArgument(splitBatchSize > 0, "splitBatchSize must be at least one");
         this.groupedExecution = groupedExecution;
-        this.enableDynamicJoinPushdDown = stage.getEnableDynamicJoinPushDown();
     }
 
     @Override
@@ -259,7 +257,7 @@ public class SourcePartitionedScheduler
             ScheduleGroup scheduleGroup = entry.getValue();
             Set<Split> pendingSplits = scheduleGroup.pendingSplits;
 
-            if (enableDynamicJoinPushdDown) {
+            if (dynamicJoinPushdownService.dynamicExecutionEnabled()) {
                 dynamicJoinPushdownService.acknowledge(stage.getStageId(), stage.getNodeTaskMap());
             }
 
@@ -267,15 +265,15 @@ public class SourcePartitionedScheduler
                 verify(scheduleGroup.nextSplitBatchFuture == null);
             }
             else if (pendingSplits.isEmpty()) {
-                if (!atLeastOneSplitAdded && enableDynamicJoinPushdDown) {
+                if (!atLeastOneSplitAdded && dynamicJoinPushdownService.dynamicExecutionEnabled()) {
                     pendingSplits.add(new Split(
                             splitSource.getCatalogName(),
                             new EmptySplit(splitSource.getCatalogName()),
                             lifespan));
-                    dynamicJoinPushdownService.setInitialWinningStageId();
+                    dynamicJoinPushdownService.setWinningStageId();
                     atLeastOneSplitAdded = true;
                 }
-                if (!enableDynamicJoinPushdDown || dynamicJoinPushdownService.checkCouldSchedule(stage.getStageId())) {
+                if (!dynamicJoinPushdownService.dynamicExecutionEnabled() || dynamicJoinPushdownService.checkCouldSchedule(stage.getStageId())) {
                     // try to get the next batch
                     if (scheduleGroup.nextSplitBatchFuture == null) {
                         int schedulingBatchSize = dynamicJoinPushdownService.getSchedulingBatchSize();
@@ -314,7 +312,7 @@ public class SourcePartitionedScheduler
                 }
             }
 
-            if (enableDynamicJoinPushdDown && dynamicJoinPushdownService.isNoMoreSplits()) {
+            if (dynamicJoinPushdownService.dynamicExecutionEnabled() && dynamicJoinPushdownService.isNoMoreSplits()) {
                 scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
             }
 
@@ -359,7 +357,7 @@ public class SourcePartitionedScheduler
             }
 
             // assign the splits with successful placements
-            if (enableDynamicJoinPushdDown) {
+            if (dynamicJoinPushdownService.dynamicExecutionEnabled()) {
                 dynamicJoinPushdownService.scheduleSplits(stage.getStageId(), splitAssignment);
             }
 

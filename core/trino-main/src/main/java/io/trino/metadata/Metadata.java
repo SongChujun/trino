@@ -163,6 +163,11 @@ public interface Metadata
         return 0.0;
     }
 
+    default List<Double> getWorkersCPUPressure()
+    {
+        return ImmutableList.of();
+    }
+
     /**
      * Gets the metadata for the specified table column.
      *

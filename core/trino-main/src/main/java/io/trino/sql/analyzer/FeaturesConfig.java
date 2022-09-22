@@ -73,6 +73,8 @@ public class FeaturesConfig
     private JoinDistributionType joinDistributionType = JoinDistributionType.AUTOMATIC;
     private JoinType joinType = JoinType.SORT_MERGE;
     private ElasticJoinType elasticJoinType = ElasticJoinType.OFFLOAD;
+
+    private DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection = DefaultDynamicJoinPushdownDirection.DOWN;
     private double elasticJoinRightPushdownRatio = 0.5;
     private double elasticJoinLeftPushdownRatio = 0.5;
     private int scheduleSplitBatchSize = 5;
@@ -190,6 +192,12 @@ public class FeaturesConfig
         STATIC_MULTIPLE_SPLITS
     }
 
+    public enum DefaultDynamicJoinPushdownDirection
+    {
+        UP,
+        DOWN
+    }
+
     public enum DataIntegrityVerification
     {
         NONE,
@@ -286,6 +294,18 @@ public class FeaturesConfig
     public ElasticJoinType getElasticJoinType()
     {
         return elasticJoinType;
+    }
+
+    public DefaultDynamicJoinPushdownDirection getDefaultDynamicJoinPushdownDirection()
+    {
+        return defaultDynamicJoinPushdownDirection;
+    }
+
+    @Config("default-dynamic-join-pushdown-direction")
+    public FeaturesConfig setDefaultDynamicJoinPushdownDirection(DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection)
+    {
+        this.defaultDynamicJoinPushdownDirection = requireNonNull(defaultDynamicJoinPushdownDirection, "defaultDynamicJoinPushdownDirection is null");
+        return this;
     }
 
     @Config("elastic-join-type")

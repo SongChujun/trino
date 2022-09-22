@@ -227,7 +227,11 @@ public final class MetadataManager
 
     private double dbNodeCPUPressure;
 
-    private BufferedReader br;
+    private double worker01CPUPressure;
+
+    private BufferedReader dbPressureBr;
+
+    private BufferedReader worker01PressureBr;
 
     @Inject
     public MetadataManager(
@@ -297,9 +301,18 @@ public final class MetadataManager
                 }));
 
         try {
-            this.br = new BufferedReader(
+            this.dbPressureBr = new BufferedReader(
                     new InputStreamReader(
                             new Socket("dbNode", 8888).getInputStream()));
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        try {
+            this.worker01PressureBr = new BufferedReader(
+                    new InputStreamReader(
+                            new Socket("worker01", 8889).getInputStream()));
         }
         catch (Exception e) {
             e.printStackTrace();
@@ -309,7 +322,7 @@ public final class MetadataManager
             String currentCpuPressure;
             while (true) {
                 try {
-                    while ((currentCpuPressure = br.readLine()) != null) {
+                    while ((currentCpuPressure = dbPressureBr.readLine()) != null) {
                         dbNodeCPUPressure = Double.parseDouble(currentCpuPressure);
                     }
                 }
@@ -318,7 +331,21 @@ public final class MetadataManager
                 }
             }
         });
+        Thread getWorker01CPUPressureThread = new Thread(() -> {
+            String currentCpuPressure;
+            while (true) {
+                try {
+                    while ((currentCpuPressure = worker01PressureBr.readLine()) != null) {
+                        worker01CPUPressure = Double.parseDouble(currentCpuPressure);
+                    }
+                }
+                catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
         getDBNodeCPUPressureThread.start();
+        getWorker01CPUPressureThread.start();
     }
 
     public static MetadataManager createTestMetadataManager()
@@ -368,6 +395,12 @@ public final class MetadataManager
     public double getDbNodeCPUPressure()
     {
         return dbNodeCPUPressure;
+    }
+
+    @Override
+    public List<Double> getWorkersCPUPressure()
+    {
+        return ImmutableList.of(worker01CPUPressure);
     }
 
     @Override

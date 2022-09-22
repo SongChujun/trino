@@ -46,6 +46,8 @@ public class DynamicJoinPushdownService
 
     private static double dbNodePressureThreshold;
 
+    private static FeaturesConfig.DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection;
+
     private static final Logger log = Logger.get(DynamicJoinPushdownService.class);
 
     private static class SplitsTracker
@@ -131,15 +133,22 @@ public class DynamicJoinPushdownService
         this.metadata = metadata;
     }
 
-    public static void setSchedulingParameters(FeaturesConfig.ElasticJoinType elasticJoinType, int schedulingInterval, double dbNodePressureThreshold)
+    public static void setSchedulingParameters(FeaturesConfig.ElasticJoinType elasticJoinType, FeaturesConfig.DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection, int schedulingInterval, double dbNodePressureThreshold)
     {
         DynamicJoinPushdownService.elasticJoinType = elasticJoinType;
         DynamicJoinPushdownService.schedulingInterval = schedulingInterval;
         DynamicJoinPushdownService.dbNodePressureThreshold = dbNodePressureThreshold;
+        DynamicJoinPushdownService.defaultDynamicJoinPushdownDirection = defaultDynamicJoinPushdownDirection;
     }
 
     public void setUpOrDownStageId(SqlStageExecution stage)
     {
+        if (!elasticJoinType.equals(FeaturesConfig.ElasticJoinType.DYNAMIC)) {
+            return;
+        }
+        else {
+            downStageId = stage.getStageId();
+        }
         if (stage.getStagePlacement().equals(SqlStageExecution.StagePlacement.UP)) {
             this.upStageId = stage.getStageId();
         }
@@ -162,13 +171,23 @@ public class DynamicJoinPushdownService
         return elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC;
     }
 
-    public void setInitialWinningStageId()
+    public void setWinningStageId()
     {
-        if (metadata.getDbNodeCPUPressure() >= dbNodePressureThreshold) {
+        double dbNodeCPUPressure = metadata.getDbNodeCPUPressure();
+        double workersCPUPressure = metadata.getWorkersCPUPressure().stream().mapToDouble(Double::doubleValue).average().orElse(0);
+        if (dbNodeCPUPressure >= dbNodePressureThreshold && (workersCPUPressure < dbNodePressureThreshold)) {
             winnerStageId = Optional.of(upStageId);
         }
-        else {
+        else if (dbNodeCPUPressure < dbNodePressureThreshold && (workersCPUPressure >= dbNodePressureThreshold)) {
             winnerStageId = Optional.of(downStageId);
+        }
+        else {
+            if (defaultDynamicJoinPushdownDirection.equals(FeaturesConfig.DefaultDynamicJoinPushdownDirection.UP)) {
+                winnerStageId = Optional.of(upStageId);
+            }
+            else {
+                winnerStageId = Optional.of(downStageId);
+            }
         }
     }
 
@@ -186,12 +205,7 @@ public class DynamicJoinPushdownService
             return false;
         }
 
-        if (metadata.getDbNodeCPUPressure() >= dbNodePressureThreshold) {
-            winnerStageId = Optional.of(upStageId);
-        }
-        else {
-            winnerStageId = Optional.of(downStageId);
-        }
+        setWinningStageId();
 
         allSplitsFromThisRoundScheduled = false;
         if (winnerStageId.get().equals(stageId)) {

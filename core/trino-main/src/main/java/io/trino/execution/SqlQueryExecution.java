@@ -809,9 +809,10 @@ public class SqlQueryExecution
             int scheduleSplitBatchSize = SystemSessionProperties.getScheduleSplitBatchSize(stateMachine.getSession());
             double dynamicJoinPushDownThreshold = SystemSessionProperties.getDynamicJoinDbNodePressireThreshold(stateMachine.getSession());
             FeaturesConfig.ElasticJoinType elasticJoinType = SystemSessionProperties.getElasticJoinType(stateMachine.getSession());
+            FeaturesConfig.DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection = SystemSessionProperties.getDefaultDynamicJoinPushdownDirection(stateMachine.getSession());
             ExecutionPolicy executionPolicy = executionPolicies.get(executionPolicyName);
             checkArgument(executionPolicy != null, "No execution policy %s", executionPolicyName);
-            DynamicJoinPushdownService.setSchedulingParameters(elasticJoinType, scheduleSplitBatchSize, dynamicJoinPushDownThreshold);
+            DynamicJoinPushdownService.setSchedulingParameters(elasticJoinType, defaultDynamicJoinPushdownDirection, scheduleSplitBatchSize, dynamicJoinPushDownThreshold);
             Map<SplitSource, DynamicJoinPushdownService> dynamicJoinPushdownServices = new HashMap<>();
 
             return new SqlQueryExecution(
