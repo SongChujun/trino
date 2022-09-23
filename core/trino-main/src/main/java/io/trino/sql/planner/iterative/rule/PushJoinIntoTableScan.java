@@ -400,7 +400,7 @@ public class PushJoinIntoTableScan
                 left.getTable(),
                 right.getTable(),
                 joinConditions,
-                leftPrimaryKeyColumnHandles,
+                (useHybridJoin && joinImplementation.equals(FeaturesConfig.JoinType.SORT_MERGE)) ? leftPrimaryKeyColumnHandles : ImmutableList.of(),
                 // TODO we could pass only subset of assignments here, those which are needed to resolve filterSplitResult.getPushableConditions
                 leftAssignments,
                 rightAssignments,

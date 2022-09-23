@@ -20,6 +20,8 @@ import io.trino.operator.OperatorContext;
 import io.trino.operator.OperatorFactory;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.IntArrayBlock;
+import io.trino.spi.block.LongArrayBlock;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.type.BlockTypeOperators;
 
@@ -29,6 +31,7 @@ import java.util.Set;
 import java.util.Stack;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.base.Verify.verify;
 import static java.util.Objects.requireNonNull;
 
 public class HashOuterJoinResultProcessingOperator
@@ -97,15 +100,10 @@ public class HashOuterJoinResultProcessingOperator
     @Override
     public void addInput(Page page)
     {
-        long processStartTime = System.currentTimeMillis();
         Page[] extractedPages = extractPages(page, isInnerJoin);
-//        this.outputEntryCnt +=extractedPages[1].getPositionCount();
         List<Page> joinResult = hashTable.joinPage(extractedPages[0]);
         if (joinResult != null) {
-//            System.out.println(extractedPages[0].getPositionCount() - joinResult.getPositionCount());
             outputPageBuffer.addAll(joinResult);
-//            joinResult.forEach(outputPageBuffer::add);
-//            outputPageBuffer.add(joinResult);
         }
         outputPageBuffer.add(extractedPages[1]);
     }
@@ -125,7 +123,9 @@ public class HashOuterJoinResultProcessingOperator
                 leftRetainedPositionsPtr += 1;
             }
             else {
-                if (!primaryKeyColumnsEqual(page, i)) {
+                String primaryKeyStr = tupleToString(page, leftPrimaryKeyChannels, i);
+                if (!duplicateSet.contains(primaryKeyStr)) {
+                    duplicateSet.add(primaryKeyStr);
                     leftRetainedPositions[leftRetainedPositionsPtr] = i;
                     leftRetainedPositionsPtr += 1;
                 }
@@ -147,6 +147,27 @@ public class HashOuterJoinResultProcessingOperator
         Page leftPage = page.copyPositions(leftRetainedPositions, 0, leftRetainedPositionsPtr).getColumns(leftColumnIdxs);
         Page outputPage = page.copyPositions(outputRetainedPositions, 0, outputRetainedPositionsPtr).getColumns(outputColumnIdxs);
         return new Page[] {leftPage, outputPage};
+    }
+
+    private String tupleToString(Page page, List<Integer> channels, int row)
+    {
+        StringBuilder res = new StringBuilder();
+        for (Integer channel : channels) {
+            if (page.getBlock(channel) instanceof LongArrayBlock) {
+                LongArrayBlock block = (LongArrayBlock) page.getBlock(channel);
+                res.append(block.getLong(row, 0));
+                res.append('*');
+            }
+            else if (page.getBlock(channel) instanceof IntArrayBlock) {
+                IntArrayBlock block = (IntArrayBlock) page.getBlock(channel);
+                res.append(block.getInt(row, 0));
+                res.append('*');
+            }
+            else {
+                verify(false);
+            }
+        }
+        return res.toString();
     }
 
     private Boolean primaryKeyColumnsEqual(Page page, int row)
