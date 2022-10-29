@@ -336,7 +336,7 @@ public class PagesIndex
             long time = System.nanoTime();
             pagesIndexOrdering.sort(this, batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0, batchEndingPosition.get(batchEndingPosition.size() - 1));
             long elapsed = System.nanoTime() - time;
-            log.debug("Sorting %d entries took %.3f s", batchEndingPosition.get(batchEndingPosition.size() - 1) - (batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0), elapsed / 1_000_000_000.0);
+//            log.debug("Sorting %d entries took %.3f s", batchEndingPosition.get(batchEndingPosition.size() - 1) - (batchEndingPosition.size() >= 2 ? batchEndingPosition.get(batchEndingPosition.size() - 2) : 0), elapsed / 1_000_000_000.0);
         }
     }
 

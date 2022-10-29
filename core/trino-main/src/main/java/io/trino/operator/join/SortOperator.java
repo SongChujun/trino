@@ -16,6 +16,7 @@ package io.trino.operator.join;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import io.airlift.log.Logger;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
@@ -219,6 +220,8 @@ public class SortOperator
 
     private State state = State.NEEDS_INPUT;
 
+    private static final Logger log = Logger.get(SortOperator.class);
+
     public SortOperator(
             OperatorContext operatorContext,
             List<Type> sourceTypes,
@@ -296,6 +299,7 @@ public class SortOperator
             }
             if (sortFinishedCnt.incrementAndGet() == finishedCnt) {
                 sortFinishedFuture.set(true);
+                log.debug("sort finished");
             }
             state = State.FINISHED;
         }

@@ -14,6 +14,7 @@
 package io.trino.operator.exchange;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import io.airlift.log.Logger;
 import io.trino.execution.Lifespan;
 import io.trino.operator.DriverContext;
 import io.trino.operator.LocalPlannerAware;
@@ -101,6 +102,8 @@ public class LocalExchangeSinkOperator
     private final Function<Page, Page> pagePreprocessor;
     private ListenableFuture<?> isBlocked = NOT_BLOCKED;
 
+    private final Logger log = Logger.get(LocalExchangeSinkOperator.class);
+
     LocalExchangeSinkOperator(OperatorContext operatorContext, LocalExchangeSink sink, Function<Page, Page> pagePreprocessor)
     {
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
@@ -149,6 +152,9 @@ public class LocalExchangeSinkOperator
     {
         requireNonNull(page, "page is null");
         page = pagePreprocessor.apply(page);
+        if (page.isSplitFinishedPage()) {
+            log.debug("last page for localExchangeSingOperator for split %s", page.getSplitIdentifier());
+        }
         sink.addPage(page);
         operatorContext.recordOutput(page.getSizeInBytes(), page.getPositionCount());
     }

@@ -16,6 +16,7 @@ package io.trino.operator.join;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
+import io.airlift.log.Logger;
 import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
@@ -137,6 +138,8 @@ public class OffloadPagesMergeOperator
 
     private final ExecutorService executor;
 
+    private static final Logger log = Logger.get(OffloadPagesMergeOperator.class);
+
     public OffloadPagesMergeOperator(OperatorContext operatorContext,
             List<Integer> leftMergeChannels,
             List<Integer> rightMergeChannels,
@@ -202,6 +205,7 @@ public class OffloadPagesMergeOperator
     public Page getOutput()
     {
         if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || ((mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) && !resultMerged)) {
+            log.debug("start adding merge to task queue");
             List<Callable<Integer>> mergeTasks = new ArrayList<>();
             mergeTasks.add(new MergeTask(leftUpSortedPagesIndex, leftDownSortedPagesIndex, mode));
             mergeTasks.add(new MergeTask(rightUpSortedPagesIndex, rightDownSortedPagesIndex, mode));

@@ -14,6 +14,7 @@
 package io.trino.operator.exchange;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import io.airlift.log.Logger;
 import io.trino.operator.DriverContext;
 import io.trino.operator.Operator;
 import io.trino.operator.OperatorContext;
@@ -78,6 +79,8 @@ public class LocalExchangeSourceOperator
     private final LocalExchangeSource source;
     private ListenableFuture<?> isBlocked = NOT_BLOCKED;
 
+    private final Logger log = Logger.get(LocalExchangeSourceOperator.class);
+
     public LocalExchangeSourceOperator(OperatorContext operatorContext, LocalExchangeSource source)
     {
         this.operatorContext = requireNonNull(operatorContext, "operatorContext is null");
@@ -133,6 +136,9 @@ public class LocalExchangeSourceOperator
         Page page = source.removePage();
         if (page != null) {
             operatorContext.recordProcessedInput(page.getSizeInBytes(), page.getPositionCount());
+        }
+        if (page.isSplitFinishedPage()) {
+            log.debug("last page for LocalExchangeSourceOperator for split %s", page.getSplitIdentifier());
         }
         return page;
     }

@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.ListenableFuture;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.trino.execution.buffer.OutputBuffer;
 import io.trino.execution.buffer.PagesSerde;
@@ -202,6 +203,8 @@ public class PartitionedOutputOperator
     private ListenableFuture<?> isBlocked = NOT_BLOCKED;
     private boolean finished;
 
+    private final Logger log = Logger.get(PartitionedOutputOperator.class);
+
     public PartitionedOutputOperator(
             OperatorContext operatorContext,
             List<Type> sourceTypes,
@@ -288,6 +291,9 @@ public class PartitionedOutputOperator
         }
 
         page = pagePreprocessor.apply(page);
+        if (page.isSplitFinishedPage()) {
+            log.debug("last page for PartitionedOutputOperator for split %s", page.getSplitIdentifier());
+        }
         partitionFunction.partitionPage(page);
 
         // We use getSizeInBytes() here instead of getRetainedSizeInBytes() for an approximation of

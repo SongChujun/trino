@@ -14,6 +14,7 @@
 package io.trino.operator;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import io.airlift.log.Logger;
 import io.trino.connector.CatalogName;
 import io.trino.execution.buffer.PagesSerde;
 import io.trino.execution.buffer.PagesSerdeFactory;
@@ -93,6 +94,8 @@ public class ExchangeOperator
     private final ExchangeClient exchangeClient;
     private final PagesSerde serde;
     private ListenableFuture<?> isBlocked = NOT_BLOCKED;
+
+    private final Logger log = Logger.get(ExchangeOperator.class);
 
     public ExchangeOperator(
             OperatorContext operatorContext,
@@ -186,6 +189,9 @@ public class ExchangeOperator
         operatorContext.recordNetworkInput(page.getSizeInBytes(), page.getPositionCount());
 
         Page deserializedPage = serde.deserialize(page);
+        if (deserializedPage.isSplitFinishedPage()) {
+            log.debug("last page for ExchangeOperator for split %s", deserializedPage.getSplitIdentifier());
+        }
         operatorContext.recordProcessedInput(deserializedPage.getSizeInBytes(), page.getPositionCount());
 
         return deserializedPage;
