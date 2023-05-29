@@ -42,13 +42,13 @@ import static java.util.Objects.requireNonNull;
 
 public final class Page
 {
-    public static final SplitIdentifier NO_IDENTIFIER = new SplitIdentifier("-1", "NONE", false);
-
     public static class SplitIdentifier
     {
         private final String id;
 
         private final String tableName;
+
+        private String seqNum;
 
         private final boolean isFinishedPage;
 
@@ -56,11 +56,21 @@ public final class Page
         public SplitIdentifier(
                 @JsonProperty("id") String id,
                 @JsonProperty("tableName") String tableName,
-                @JsonProperty("isFinishedPage") boolean isFinishedPage)
+                @JsonProperty("isFinishedPage") boolean isFinishedPage,
+                @JsonProperty("seqNum") String seqNum)
         {
             this.id = id;
             this.tableName = tableName;
             this.isFinishedPage = isFinishedPage;
+            this.seqNum = seqNum;
+        }
+
+        public SplitIdentifier(SplitIdentifier another)
+        {
+            this.id = another.id;
+            this.tableName = another.tableName;
+            this.isFinishedPage = another.isFinishedPage;
+            this.seqNum = another.seqNum;
         }
 
         @JsonProperty("id")
@@ -81,15 +91,21 @@ public final class Page
             return isFinishedPage;
         }
 
+        @JsonProperty("seqNum")
+        public String getSeqNum()
+        {
+            return seqNum;
+        }
+
         public static SplitIdentifier deserialize(String serialized)
         {
             String[] split = serialized.split(",");
-            return new SplitIdentifier(split[0], split[1], Boolean.parseBoolean(split[2]));
+            return new SplitIdentifier(split[0], split[1], Boolean.parseBoolean(split[2]), split[3]);
         }
 
         public String serialize()
         {
-            return format("%s,%s,%s", id, tableName, isFinishedPage);
+            return format("%s,%s,%s,%s", id, tableName, isFinishedPage, seqNum);
         }
 
         public boolean equalsIgnoringFinished(SplitIdentifier other)
@@ -110,13 +126,14 @@ public final class Page
             SplitIdentifier o = (SplitIdentifier) obj;
             return Objects.equals(this.id, o.id) &&
                     Objects.equals(this.tableName, o.tableName) &&
-                    Objects.equals(this.isFinishedPage, o.isFinishedPage);
+                    Objects.equals(this.isFinishedPage, o.isFinishedPage) &&
+                    Objects.equals(this.seqNum, o.seqNum);
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hash(id, tableName, isFinishedPage);
+            return Objects.hash(id, tableName, isFinishedPage, seqNum);
         }
 
         @Override
@@ -198,9 +215,9 @@ public final class Page
         this.blocks = blocksCopyRequired ? blocks.clone() : blocks;
     }
 
-    public void setSplitIdentifier(String id, String tableName, boolean isFinished)
+    public void setSplitIdentifier(String id, String tableName, boolean isFinished, String seqNum)
     {
-        this.splitIdentifier = Optional.of(new SplitIdentifier(id, tableName, isFinished));
+        this.splitIdentifier = Optional.of(new SplitIdentifier(id, tableName, isFinished, seqNum));
     }
 
     public void setSplitIdentifier(Optional<SplitIdentifier> splitIdentifier)
@@ -217,6 +234,16 @@ public final class Page
     public Optional<String> getId()
     {
         return splitIdentifier.map(identifier -> identifier.id);
+    }
+
+    public Optional<String> getSeqNum()
+    {
+        return splitIdentifier.map(seqNum -> seqNum.seqNum);
+    }
+
+    public void setSeqNum(String seqNum)
+    {
+        this.splitIdentifier.ifPresent(identifier -> identifier.seqNum = seqNum);
     }
 
     public Optional<String> getTableName()

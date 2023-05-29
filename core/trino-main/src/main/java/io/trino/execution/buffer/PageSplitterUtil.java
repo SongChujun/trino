@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import io.trino.spi.Page;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -48,11 +49,14 @@ public final class PageSplitterUtil
         int half = positionCount / 2;
 
         Page leftHalf = page.getRegion(0, half);
-        leftHalf.setSplitIdentifier(page.getSplitIdentifier());
+        Optional<String> pageSeqNum = page.getSeqNum();
+        leftHalf.setSplitIdentifier(page.getSplitIdentifier().isPresent() ? Optional.of(new Page.SplitIdentifier(page.getSplitIdentifier().get())) : Optional.empty());
+        pageSeqNum.ifPresent(s -> leftHalf.setSeqNum(s + "_0"));
         outputPages.addAll(splitPage(leftHalf, maxPageSizeInBytes, previousSize));
 
         Page rightHalf = page.getRegion(half, positionCount - half);
-        rightHalf.setSplitIdentifier(page.getSplitIdentifier());
+        rightHalf.setSplitIdentifier(page.getSplitIdentifier().isPresent() ? Optional.of(new Page.SplitIdentifier(page.getSplitIdentifier().get())) : Optional.empty());
+        pageSeqNum.ifPresent(s -> rightHalf.setSeqNum(s + "_1"));
         outputPages.addAll(splitPage(rightHalf, maxPageSizeInBytes, previousSize));
 
         return outputPages.build();

@@ -285,6 +285,9 @@ public class SortOperator
                     finishMemoryRevoke.run();
                 }
             }
+            if (executionType == ExecutionType.STORE || executionType == ExecutionType.STORE_MERGE) {
+                pageIndex.addSeqPages();
+            }
             if (executionType == ExecutionType.STORE_SORT) {
                 pageIndex.sort(sortChannels, sortOrder);
             }
@@ -326,9 +329,12 @@ public class SortOperator
 
         // TODO: remove when retained memory accounting for pages does not
         // count shared data structures multiple times
-//        page.compact();
-        if ((executionType == ExecutionType.STORE_MERGE) || (executionType == ExecutionType.STORE_SORT) || (executionType == ExecutionType.STORE)) {
+        page.compact();
+        if ((executionType == ExecutionType.STORE_SORT)) {
             pageIndex.addPage(page);
+        }
+        else if ((executionType == ExecutionType.STORE_MERGE) || (executionType == ExecutionType.STORE)) {
+            pageIndex.storePage(page);
         }
         else if (executionType == ExecutionType.SORT_MERGE) {
             pageIndex.addAndSortPage(page);

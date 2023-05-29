@@ -50,12 +50,14 @@ import javax.inject.Inject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
@@ -108,6 +110,8 @@ public class PagesIndex
     private int pagesBatchSize;
     private int pagesBatchIter;
     private final Map<String, List<Integer>> pagesBySplit = new HashMap<>();
+
+    private final Map<String, Map<String, Page>> seqNumToPageBySplit = new HashMap<>();
 
     private PagesIndex(
             OrderingCompiler orderingCompiler,
@@ -256,6 +260,22 @@ public class PagesIndex
         estimatedSize = calculateEstimatedSize();
     }
 
+    public void storePage(Page page)
+    {
+        // ignore empty pages
+        if (page.getPositionCount() == 0) {
+            return;
+        }
+        checkArgument(page.getSeqNum().isPresent() && page.getId().isPresent());
+        String pageSeqNum = page.getSeqNum().get();
+        String pageId = page.getId().isPresent() ? page.getId().get() : "";
+        if (!seqNumToPageBySplit.containsKey(pageId)) {
+            seqNumToPageBySplit.put(pageId, new HashMap<>());
+        }
+        Map<String, Page> seqNumToPage = seqNumToPageBySplit.get(pageId);
+        seqNumToPage.put(pageSeqNum, page);
+    }
+
     public void addPage(Page page)
     {
         // ignore empty pages
@@ -293,6 +313,33 @@ public class PagesIndex
             valueAddresses.add(sliceAddress);
         }
         estimatedSize = calculateEstimatedSize();
+    }
+
+    public void addSeqPages()
+    {
+        Comparator<String> seqNumkeyComparator = (str1, str2) -> {
+            List<Integer> str1Decomposed = Arrays.stream(str1.split("_")).map(Integer::parseInt).collect(Collectors.toList());
+            List<Integer> str2Decomposed = Arrays.stream(str2.split("_")).map(Integer::parseInt).collect(Collectors.toList());
+            int i = 0;
+            while (i < str1Decomposed.size() && i < str2Decomposed.size()) {
+                if (str1Decomposed.get(i) < str2Decomposed.get(i)) {
+                    return -1;
+                }
+                else if (str1Decomposed.get(i) > str2Decomposed.get(i)) {
+                    return 1;
+                }
+                i++;
+            }
+            throw new IllegalStateException();
+        };
+        for (Map<String, Page> seqNumToPage : seqNumToPageBySplit.values()) {
+            Set<String> keys = seqNumToPage.keySet();
+            List<String> sortedKeys = new ArrayList<>(keys);
+            sortedKeys.sort(seqNumkeyComparator);
+            for (String sortedKey : sortedKeys) {
+                addPage(seqNumToPage.get(sortedKey));
+            }
+        }
     }
 
     public void addAndSortPage(Page page)

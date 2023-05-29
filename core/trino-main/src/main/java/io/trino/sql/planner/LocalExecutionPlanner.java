@@ -3996,7 +3996,7 @@ public class LocalExecutionPlanner
                                         localExchangeFactory.newSinkFactoryId(),
                                         pagePreprocessor),
                                 source),
-                        OptionalInt.of(1));
+                        subContext.getDriverInstanceCount());
             }
 
             // the main driver is not an input... the exchange sources are the input for the plan

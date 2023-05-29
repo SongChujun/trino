@@ -303,6 +303,8 @@ public class ScanFilterAndProjectOperator
 
         boolean finished;
 
+        long pageSeqNum;
+
         RecordCursorToPages(
                 Session session,
                 DriverYieldSignal yieldSignal,
@@ -353,7 +355,7 @@ public class ScanFilterAndProjectOperator
                     log.debug("read split finished: " + splitIdentifiers[0] + "_" + splitIdentifiers[1]);
                 }
                 if (splitIdentifiers.length > 1) {
-                    page.setSplitIdentifier(splitIdentifier, tableName, isFinished);
+                    page.setSplitIdentifier(splitIdentifier, tableName, isFinished, String.valueOf(pageSeqNum++));
                 }
                 pageBuilder.reset();
                 outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
