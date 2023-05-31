@@ -357,6 +357,9 @@ public class ScanFilterAndProjectOperator
                 if (splitIdentifiers.length > 1) {
                     page.setSplitIdentifier(splitIdentifier, tableName, isFinished, String.valueOf(pageSeqNum++));
                 }
+                else {
+                    page.setSplitIdentifier("", "", isFinished, String.valueOf(pageSeqNum++));
+                }
                 pageBuilder.reset();
                 outputMemoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
                 return ProcessState.ofResult(page);
