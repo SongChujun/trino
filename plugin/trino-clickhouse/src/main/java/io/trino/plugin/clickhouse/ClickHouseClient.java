@@ -48,6 +48,8 @@ import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.FixedSplitSource;
+import io.trino.spi.connector.JoinStatistics;
+import io.trino.spi.connector.JoinType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
@@ -169,6 +171,36 @@ public class ClickHouseClient
         PreparedStatement statement = connection.prepareStatement(sql);
         statement.setFetchSize(10000000);
         return statement;
+    }
+
+    @Override
+    public Optional<PreparedQuery> implementJoin(
+            ConnectorSession session,
+            JoinType joinType,
+            PreparedQuery leftSource,
+            PreparedQuery rightSource,
+            List<JdbcJoinCondition> joinConditions,
+            List<ColumnHandle> orderByColumns,
+            Map<JdbcColumnHandle, String> rightAssignments,
+            Map<JdbcColumnHandle, String> leftAssignments,
+            JoinStatistics statistics)
+    {
+        for (JdbcJoinCondition joinCondition : joinConditions) {
+            if (!isSupportedJoinCondition(joinCondition)) {
+                return Optional.empty();
+            }
+        }
+
+        QueryBuilder queryBuilder = new QueryBuilder(this);
+        return Optional.of(queryBuilder.prepareJoinQuery(
+                session,
+                joinType,
+                leftSource,
+                rightSource,
+                joinConditions,
+                orderByColumns,
+                leftAssignments,
+                rightAssignments, QueryBuilder.Datasource.CLICKHOUSE));
     }
 
     @Override

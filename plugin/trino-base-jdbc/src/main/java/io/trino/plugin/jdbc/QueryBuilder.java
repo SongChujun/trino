@@ -127,7 +127,8 @@ public class QueryBuilder
             List<JdbcJoinCondition> joinConditions,
             List<ColumnHandle> orderByColumns,
             Map<JdbcColumnHandle, String> leftAssignments,
-            Map<JdbcColumnHandle, String> rightAssignments)
+            Map<JdbcColumnHandle, String> rightAssignments,
+            Datasource datasource)
     {
         // Verify assignments are present. This is safe assumption as join conditions are not pruned, and simplifies the code here.
         verify(!leftAssignments.isEmpty(), "leftAssignments is empty");
@@ -158,6 +159,10 @@ public class QueryBuilder
                     joinConditions.stream()
                             .map(this::formatCondition)
                             .collect(joining(" AND ")));
+        }
+
+        if (datasource == Datasource.CLICKHOUSE) {
+            query = query + " settings join_algorithm = 'auto' ";
         }
         List<QueryParameter> parameters = ImmutableList.<QueryParameter>builder()
                 .addAll(leftSource.getParameters())

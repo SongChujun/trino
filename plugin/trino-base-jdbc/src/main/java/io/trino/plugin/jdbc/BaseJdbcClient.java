@@ -496,7 +496,7 @@ public abstract class BaseJdbcClient
                 joinConditions,
                 orderByColumns,
                 leftAssignments,
-                rightAssignments));
+                rightAssignments, QueryBuilder.Datasource.OTHER));
     }
 
     protected boolean isSupportedJoinCondition(JdbcJoinCondition joinCondition)
