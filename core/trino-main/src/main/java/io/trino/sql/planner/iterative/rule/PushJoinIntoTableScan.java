@@ -110,7 +110,8 @@ public class PushJoinIntoTableScan
     public PushJoinIntoTableScan(Metadata metadata, SplitManager splitManager)
     {
         this.metadata = requireNonNull(metadata, "metadata is null");
-        this.splitManager = requireNonNull(splitManager, "splitManager is null");
+//        this.splitManager = requireNonNull(splitManager, "splitManager is null");
+        this.splitManager = splitManager;
     }
 
     @Override

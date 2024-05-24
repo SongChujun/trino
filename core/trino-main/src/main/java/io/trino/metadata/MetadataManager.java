@@ -303,7 +303,7 @@ public final class MetadataManager
         try {
             this.dbPressureBr = new BufferedReader(
                     new InputStreamReader(
-                            new Socket("dbNode", 8888).getInputStream()));
+                            new Socket("clickhouse", 8888).getInputStream()));
         }
         catch (Exception e) {
             e.printStackTrace();

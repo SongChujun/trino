@@ -2344,15 +2344,16 @@ public class LocalExecutionPlanner
                 case LEFT:
                 case RIGHT:
                 case FULL:
-                    if (getJoinType(session) == FeaturesConfig.JoinType.HASH) {
-                        return createLookupJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
-                    }
-                    else if (getJoinType(session) == FeaturesConfig.JoinType.SORT_MERGE) {
-                        return createSortMergeJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
-                    }
-                    else {
-                        throw new UnsupportedOperationException("Unsupported join type");
-                    }
+                    return createLookupJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+//                if (getJoinType(session) == FeaturesConfig.JoinType.HASH) {
+//                        return createLookupJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+//                    }
+//                    else if (getJoinType(session) == FeaturesConfig.JoinType.SORT_MERGE) {
+//                        return createSortMergeJoin(node, node.getLeft(), leftSymbols, node.getLeftHashSymbol(), node.getRight(), rightSymbols, node.getRightHashSymbol(), localDynamicFilters, context);
+//                    }
+//                    else {
+//                        throw new UnsupportedOperationException("Unsupported join type");
+//                    }
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
@@ -3996,7 +3997,7 @@ public class LocalExecutionPlanner
                                         localExchangeFactory.newSinkFactoryId(),
                                         pagePreprocessor),
                                 source),
-                        subContext.getDriverInstanceCount());
+                        OptionalInt.of(1));
             }
 
             // the main driver is not an input... the exchange sources are the input for the plan

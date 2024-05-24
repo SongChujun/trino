@@ -290,6 +290,20 @@ public class SqlQueryScheduler
         queryStateMachine.updateOutputLocations(bufferLocations, noMoreExchangeLocations);
     }
 
+    private Optional<SortMergeAdaptiveJoinNode> getSortMergeAdaptiveJoinNodeFromStage(PlanNode root)
+    {
+        if (root instanceof SortMergeAdaptiveJoinNode) {
+            return Optional.of((SortMergeAdaptiveJoinNode) root);
+        }
+        for (PlanNode source : root.getSources()) {
+            Optional<SortMergeAdaptiveJoinNode> subRes = getSortMergeAdaptiveJoinNodeFromStage(source);
+            if (subRes.isPresent()) {
+                return subRes;
+            }
+        }
+        return Optional.empty();
+    }
+
     private List<SqlStageExecution> createStages(
             Optional<SqlStageExecution> parentStage,
             ExchangeLocationsConsumer parent,
@@ -323,9 +337,12 @@ public class SqlQueryScheduler
                 failureDetector,
                 dynamicFilterService,
                 schedulerStats);
-        if (parentStage.isPresent() && parentStage.get().getFragment().getRoot() instanceof SortMergeAdaptiveJoinNode) {
-            stage.setEnableDynamicJoinPushDown(true);
-            setStagePlacement(stage, (SortMergeAdaptiveJoinNode) parentStage.get().getFragment().getRoot(), stage.getFragment().getId());
+        if (parentStage.isPresent()) {
+            Optional<SortMergeAdaptiveJoinNode> sortMergeAdaptiveJoinNode = getSortMergeAdaptiveJoinNodeFromStage(parentStage.get().getFragment().getRoot());
+            if (sortMergeAdaptiveJoinNode.isPresent()) {
+                stage.setEnableDynamicJoinPushDown(true);
+                setStagePlacement(stage, sortMergeAdaptiveJoinNode.get(), stage.getFragment().getId());
+            }
         }
         stages.add(stage);
 
@@ -380,7 +397,7 @@ public class SqlQueryScheduler
                     placementPolicy,
                     splitBatchSize,
                     dynamicFilterService,
-                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, k -> new DynamicJoinPushdownService(dynamicFilterService.getMetadata())),
+                    dynamicJoinPushdownServices.computeIfAbsent(splitSource, k -> new DynamicJoinPushdownService(dynamicFilterService.getMetadata(), stage.getEnableDynamicJoinPushDown())),
                     () -> childStages.stream().anyMatch(SqlStageExecution::isAnyTaskBlocked)));
         }
         else if (partitioningHandle.equals(SCALED_WRITER_DISTRIBUTION)) {

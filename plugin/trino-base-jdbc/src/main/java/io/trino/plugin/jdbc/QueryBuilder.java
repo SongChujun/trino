@@ -162,7 +162,7 @@ public class QueryBuilder
         }
 
         if (datasource == Datasource.CLICKHOUSE) {
-            query = query + " settings join_algorithm = 'auto' ";
+            query = query + " settings join_algorithm = 'grace_hash' ";
         }
         List<QueryParameter> parameters = ImmutableList.<QueryParameter>builder()
                 .addAll(leftSource.getParameters())

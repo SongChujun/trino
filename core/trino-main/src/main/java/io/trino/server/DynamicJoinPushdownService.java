@@ -26,6 +26,7 @@ import io.trino.server.remotetask.HttpRemoteTask;
 import io.trino.spi.Page;
 import io.trino.split.EmptySplit;
 import io.trino.sql.analyzer.FeaturesConfig;
+import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
 import java.util.ArrayList;
@@ -77,12 +78,26 @@ public class DynamicJoinPushdownService
             }
         }
 
+        private boolean checkContainSortMergeAdaptiveJoinNode(PlanNode root)
+        {
+            if (root instanceof SortMergeAdaptiveJoinNode) {
+                return true;
+            }
+            for (PlanNode source : root.getSources()) {
+                boolean subRes = checkContainSortMergeAdaptiveJoinNode(source);
+                if (subRes) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public List<String> acknowledge(NodeTaskMap nodeTaskMap)
         {
             List<String> currentRoundFinishedSplits = new ArrayList<>();
             nodeSplitMap.forEach((node, splits) -> {
                 Set<RemoteTask> remoteTasks = nodeTaskMap.getNodeTasks(node).getRemoteTasks();
-                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && ((HttpRemoteTask) task).getPlanFragment().getRoot() instanceof SortMergeAdaptiveJoinNode)
+                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && checkContainSortMergeAdaptiveJoinNode(((HttpRemoteTask) task).getPlanFragment().getRoot()))
                         .map(task -> task.getTaskStatus().getSplitFinishedPagesInfo().keySet()).flatMap(Collection::stream).collect(Collectors.toList());
                 List<String> finishedSplitIds = finishedSplits.stream().map(s -> s.getTableName() + "_" + s.getId()).collect(Collectors.toList());
                 finishedSplitsCnt += finishedSplitIds.size();
@@ -128,9 +143,18 @@ public class DynamicJoinPushdownService
 
     private boolean allSplitsFromThisRoundScheduled;
 
+    private boolean enabled;
+
+    public DynamicJoinPushdownService(Metadata metadata, Boolean enabled)
+    {
+        this.metadata = metadata;
+        this.enabled = enabled;
+    }
+
     public DynamicJoinPushdownService(Metadata metadata)
     {
         this.metadata = metadata;
+        this.enabled = true;
     }
 
     public static void setSchedulingParameters(FeaturesConfig.ElasticJoinType elasticJoinType, FeaturesConfig.DefaultDynamicJoinPushdownDirection defaultDynamicJoinPushdownDirection, int schedulingInterval, double dbNodePressureThreshold)
@@ -143,11 +167,15 @@ public class DynamicJoinPushdownService
 
     public void setUpOrDownStageId(SqlStageExecution stage)
     {
-        if (!elasticJoinType.equals(FeaturesConfig.ElasticJoinType.DYNAMIC)) {
+        if ((!elasticJoinType.equals(FeaturesConfig.ElasticJoinType.DYNAMIC)) && (!elasticJoinType.equals(FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS))) {
             return;
         }
         else {
             downStageId = stage.getStageId();
+        }
+        SqlStageExecution.StagePlacement placement = stage.getStagePlacement();
+        if (placement == null) {
+            return;
         }
         if (stage.getStagePlacement().equals(SqlStageExecution.StagePlacement.UP)) {
             this.upStageId = stage.getStageId();
@@ -168,7 +196,7 @@ public class DynamicJoinPushdownService
 
     public boolean dynamicExecutionEnabled()
     {
-        return elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC;
+        return enabled & (elasticJoinType == FeaturesConfig.ElasticJoinType.DYNAMIC || elasticJoinType == FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS);
     }
 
     public void setWinningStageId()
@@ -197,6 +225,10 @@ public class DynamicJoinPushdownService
             return true;
         }
 
+        if (elasticJoinType == FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS) {
+            return splitsFinished(stageId);
+        }
+
         if (!allSplitsFromThisRoundScheduled) {
             return winnerStageId.isPresent() && winnerStageId.get().equals(stageId);
         }
@@ -218,6 +250,11 @@ public class DynamicJoinPushdownService
     private boolean allSplitsFromBothStageFinished()
     {
         return stageSplitsTracker.values().stream().allMatch(SplitsTracker::allSplitsFinished);
+    }
+
+    private boolean splitsFinished(StageId stageId)
+    {
+        return !stageSplitsTracker.containsKey(stageId) || stageSplitsTracker.get(stageId).allSplitsFinished();
     }
 
     public int getSchedulingBatchSize()
