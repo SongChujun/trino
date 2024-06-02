@@ -32,6 +32,7 @@ import io.trino.connector.CatalogName;
 import io.trino.metadata.ResolvedFunction.ResolvedFunctionDecoder;
 import io.trino.operator.aggregation.InternalAggregationFunction;
 import io.trino.operator.window.WindowFunctionSupplier;
+import io.trino.plugin.base.expression.ConnectorExpressions;
 import io.trino.spi.QueryId;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.ArrayBlockEncoding;
@@ -117,7 +118,6 @@ import io.trino.spi.type.TypeOperators;
 import io.trino.spi.type.TypeSignature;
 import io.trino.sql.analyzer.FeaturesConfig;
 import io.trino.sql.analyzer.TypeSignatureProvider;
-import io.trino.sql.planner.ConnectorExpressions;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.transaction.TransactionManager;
@@ -1698,6 +1698,7 @@ public final class MetadataManager
                 .map(result -> new ConstraintApplicationResult<>(
                         new TableHandle(catalogName, result.getHandle(), table.getTransaction(), Optional.empty()),
                         result.getRemainingFilter(),
+                        result.getRemainingExpression(),
                         result.isPrecalculateStatistics()));
     }
 

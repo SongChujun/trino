@@ -455,43 +455,7 @@ public class ElasticsearchMetadata
     @Override
     public Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session, ConnectorTableHandle table, Constraint constraint)
     {
-        ElasticsearchTableHandle handle = (ElasticsearchTableHandle) table;
-
-        if (isPassthroughQuery(handle)) {
-            // filter pushdown currently not supported for passthrough query
-            return Optional.empty();
-        }
-
-        Map<ColumnHandle, Domain> supported = new HashMap<>();
-        Map<ColumnHandle, Domain> unsupported = new HashMap<>();
-        if (constraint.getSummary().getDomains().isPresent()) {
-            for (Map.Entry<ColumnHandle, Domain> entry : constraint.getSummary().getDomains().get().entrySet()) {
-                ElasticsearchColumnHandle column = (ElasticsearchColumnHandle) entry.getKey();
-
-                if (column.isSupportsPredicates()) {
-                    supported.put(column, entry.getValue());
-                }
-                else {
-                    unsupported.put(column, entry.getValue());
-                }
-            }
-        }
-
-        TupleDomain<ColumnHandle> oldDomain = handle.getConstraint();
-        TupleDomain<ColumnHandle> newDomain = oldDomain.intersect(TupleDomain.withColumnDomains(supported));
-        if (oldDomain.equals(newDomain)) {
-            return Optional.empty();
-        }
-
-        handle = new ElasticsearchTableHandle(
-                handle.getType(),
-                handle.getSchema(),
-                handle.getIndex(),
-                newDomain,
-                handle.getQuery(),
-                handle.getLimit());
-
-        return Optional.of(new ConstraintApplicationResult<>(handle, TupleDomain.withColumnDomains(unsupported), false));
+        return Optional.empty();
     }
 
     private static boolean isPassthroughQuery(ElasticsearchTableHandle table)

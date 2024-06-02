@@ -795,38 +795,39 @@ public class IcebergMetadata
     @Override
     public Optional<ConstraintApplicationResult<ConnectorTableHandle>> applyFilter(ConnectorSession session, ConnectorTableHandle handle, Constraint constraint)
     {
-        IcebergTableHandle table = (IcebergTableHandle) handle;
-        org.apache.iceberg.Table icebergTable = getIcebergTable(session, table.getSchemaTableName());
-
-        Set<Integer> partitionSourceIds = identityPartitionColumnsInAllSpecs(icebergTable);
-        BiPredicate<IcebergColumnHandle, Domain> isIdentityPartition = (column, domain) -> partitionSourceIds.contains(column.getId());
-
-        // TODO: Avoid enforcing the constraint when partition filters have large IN expressions, since iceberg cannot
-        // support it. Such large expressions cannot be simplified since simplification changes the filtered set.
-        TupleDomain<IcebergColumnHandle> newEnforcedConstraint = constraint.getSummary()
-                .transformKeys(IcebergColumnHandle.class::cast)
-                .filter(isIdentityPartition)
-                .intersect(table.getEnforcedPredicate());
-
-        TupleDomain<IcebergColumnHandle> newUnenforcedConstraint = constraint.getSummary()
-                .transformKeys(IcebergColumnHandle.class::cast)
-                .filter(isIdentityPartition.negate())
-                .intersect(table.getUnenforcedPredicate());
-
-        if (newEnforcedConstraint.equals(table.getEnforcedPredicate())
-                && newUnenforcedConstraint.equals(table.getUnenforcedPredicate())) {
-            return Optional.empty();
-        }
-
-        return Optional.of(new ConstraintApplicationResult<>(
-                new IcebergTableHandle(table.getSchemaName(),
-                        table.getTableName(),
-                        table.getTableType(),
-                        table.getSnapshotId(),
-                        newUnenforcedConstraint,
-                        newEnforcedConstraint),
-                newUnenforcedConstraint.transformKeys(ColumnHandle.class::cast),
-                false));
+        return Optional.empty();
+//        IcebergTableHandle table = (IcebergTableHandle) handle;
+//        org.apache.iceberg.Table icebergTable = getIcebergTable(session, table.getSchemaTableName());
+//
+//        Set<Integer> partitionSourceIds = identityPartitionColumnsInAllSpecs(icebergTable);
+//        BiPredicate<IcebergColumnHandle, Domain> isIdentityPartition = (column, domain) -> partitionSourceIds.contains(column.getId());
+//
+//        // TODO: Avoid enforcing the constraint when partition filters have large IN expressions, since iceberg cannot
+//        // support it. Such large expressions cannot be simplified since simplification changes the filtered set.
+//        TupleDomain<IcebergColumnHandle> newEnforcedConstraint = constraint.getSummary()
+//                .transformKeys(IcebergColumnHandle.class::cast)
+//                .filter(isIdentityPartition)
+//                .intersect(table.getEnforcedPredicate());
+//
+//        TupleDomain<IcebergColumnHandle> newUnenforcedConstraint = constraint.getSummary()
+//                .transformKeys(IcebergColumnHandle.class::cast)
+//                .filter(isIdentityPartition.negate())
+//                .intersect(table.getUnenforcedPredicate());
+//
+//        if (newEnforcedConstraint.equals(table.getEnforcedPredicate())
+//                && newUnenforcedConstraint.equals(table.getUnenforcedPredicate())) {
+//            return Optional.empty();
+//        }
+//
+//        return Optional.of(new ConstraintApplicationResult<>(
+//                new IcebergTableHandle(table.getSchemaName(),
+//                        table.getTableName(),
+//                        table.getTableType(),
+//                        table.getSnapshotId(),
+//                        newUnenforcedConstraint,
+//                        newEnforcedConstraint),
+//                newUnenforcedConstraint.transformKeys(ColumnHandle.class::cast),
+//                false));
     }
 
     private static Set<Integer> identityPartitionColumnsInAllSpecs(org.apache.iceberg.Table table)

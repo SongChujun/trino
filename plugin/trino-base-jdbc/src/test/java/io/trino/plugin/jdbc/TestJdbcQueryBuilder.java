@@ -224,7 +224,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "",
+                Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -274,7 +275,9 @@ public class TestJdbcQueryBuilder
                 List.of(columns.get(0), columns.get(3), columns.get(9)),
                 Map.of(),
                 tupleDomain,
-                "", QueryBuilder.Datasource.OTHER);
+                "",
+                Optional.empty(),
+                QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_3\", \"col_9\" " +
@@ -306,7 +309,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -340,7 +344,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -376,7 +381,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -417,7 +423,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -458,7 +465,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -490,7 +498,8 @@ public class TestJdbcQueryBuilder
         Connection connection = database.getConnection();
         Function<String, String> function = sql -> sql + " LIMIT 10";
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), TupleDomain.all(), "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                TupleDomain.all(), "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         preparedQuery = preparedQuery.transformQuery(function);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
@@ -518,7 +527,8 @@ public class TestJdbcQueryBuilder
 
         Connection connection = database.getConnection();
         QueryBuilder queryBuilder = new QueryBuilder(jdbcClient);
-        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(), tupleDomain, "", QueryBuilder.Datasource.OTHER);
+        PreparedQuery preparedQuery = queryBuilder.prepareQuery(SESSION, connection, TEST_TABLE, Optional.empty(), columns, Map.of(),
+                tupleDomain, "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_0\", \"col_1\", \"col_2\", \"col_3\", \"col_4\", \"col_5\", " +
@@ -555,6 +565,7 @@ public class TestJdbcQueryBuilder
                 Map.of("s", "sum(\"col_0\")"),
                 TupleDomain.all(),
                 "",
+                Optional.empty(),
                 QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
@@ -598,7 +609,7 @@ public class TestJdbcQueryBuilder
                 projectedColumns,
                 Map.of("s", "sum(\"col_0\")"),
                 tupleDomain,
-                "", QueryBuilder.Datasource.OTHER);
+                "", Optional.empty(), QueryBuilder.Datasource.OTHER);
         try (PreparedStatement preparedStatement = queryBuilder.prepareStatement(SESSION, connection, preparedQuery)) {
             assertThat(preparedQuery.getQuery()).isEqualTo("" +
                     "SELECT \"col_2\", sum(\"col_0\") AS \"s\" " +

@@ -294,7 +294,8 @@ public class MongoMetadata
                 newDomain,
                 handle.getLimit());
 
-        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(), false));
+        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(),
+                constraint.getExpression(), false));
     }
 
     private void setRollback(Runnable action)

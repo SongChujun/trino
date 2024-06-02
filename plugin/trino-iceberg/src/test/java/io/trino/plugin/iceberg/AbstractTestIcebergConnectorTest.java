@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.Session;
@@ -1479,7 +1480,7 @@ public abstract class AbstractTestIcebergConnectorTest
 
         Predicate<Map<ColumnHandle, NullableValue>> predicate = new TestRelationalNumberPredicate("col1", 3, i -> i >= 0);
         IcebergColumnHandle col1Handle = getColumnHandleFromStatistics(tableStatistics, "col1");
-        Constraint constraint = new Constraint(TupleDomain.all(), Optional.of(predicate), Optional.of(ImmutableSet.of(col1Handle)));
+        Constraint constraint = new Constraint(TupleDomain.all(), predicate, ImmutableSet.of(col1Handle));
         tableStatistics = getTableStatistics(tableName, constraint);
         assertEquals(tableStatistics.getRowCount().getValue(), 2.0);
         ColumnStatistics columnStatistics = getStatisticsForColumn(tableStatistics, "col1");
@@ -1487,7 +1488,7 @@ public abstract class AbstractTestIcebergConnectorTest
 
         // This shows that Predicate<ColumnHandle, NullableValue> only filters rows for partitioned columns.
         predicate = new TestRelationalNumberPredicate("col2", 102, i -> i >= 0);
-        tableStatistics = getTableStatistics(tableName, new Constraint(TupleDomain.all(), Optional.of(predicate), Optional.empty()));
+        tableStatistics = getTableStatistics(tableName, new Constraint(TupleDomain.all(), predicate, ImmutableSet.of()));
         assertEquals(tableStatistics.getRowCount().getValue(), 4.0);
         columnStatistics = getStatisticsForColumn(tableStatistics, "col2");
         assertThat(columnStatistics.getRange()).hasValue(new DoubleRange(101, 104));

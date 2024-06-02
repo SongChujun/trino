@@ -18,6 +18,7 @@ import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
+import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConstantColumnHandle;
@@ -76,7 +77,8 @@ public class QueryBuilder
             List<JdbcColumnHandle> columns,
             Map<String, String> columnExpressions,
             TupleDomain<ColumnHandle> tupleDomain,
-            String additionalPredicate,
+            String splitIdentifier,
+            Optional<ParameterizedExpression> additionalPredicate,
             Datasource dataSource)
     {
         if (!tupleDomain.isNone()) {
@@ -88,30 +90,32 @@ public class QueryBuilder
                     .ifPresent(column -> { throw new IllegalArgumentException(format("Column %s has an expression and a constraint attached at the same time", column)); });
         }
 
+        ImmutableList.Builder<String> conjuncts = ImmutableList.builder();
         ImmutableList.Builder<QueryParameter> accumulator = ImmutableList.builder();
 
         String sql = "SELECT " + getProjection(columns, columnExpressions);
-        sql += getFrom(baseRelation, additionalPredicate, dataSource, accumulator::add);
+        sql += getFrom(baseRelation, splitIdentifier, dataSource, accumulator::add);
 
-        List<String> clauses = toConjuncts(session, connection, tupleDomain, accumulator::add);
+        toConjuncts(session, connection, tupleDomain, conjuncts, accumulator::add);
         String partitioningPredicate = null;
-        if (!additionalPredicate.isEmpty()) {
+        if (!splitIdentifier.isEmpty()) {
             if (dataSource.equals(Datasource.CLICKHOUSE)) {
-                partitioningPredicate = "_partition_id = '" + additionalPredicate + "'";
+                partitioningPredicate = "_partition_id = '" + splitIdentifier + "'";
             }
         }
-        StringBuilder joinCondition = new StringBuilder();
-        if (!clauses.isEmpty()) {
-            joinCondition.append(Joiner.on(" AND ").join(clauses));
-        }
+
         if (partitioningPredicate != null) {
-            if (joinCondition.length() > 0) {
-                joinCondition.append(" AND ");
-            }
-            joinCondition.append(partitioningPredicate);
+            conjuncts.add(partitioningPredicate);
         }
-        if (joinCondition.length() > 0) {
-            sql += " WHERE " + joinCondition;
+
+        additionalPredicate.ifPresent(predicate -> {
+            conjuncts.add(predicate.getExpression());
+            accumulator.addAll(predicate.getParameters());
+        });
+
+        List<String> clauses = conjuncts.build();
+        if (!clauses.isEmpty()) {
+            sql += " WHERE " + Joiner.on(" AND ").join(clauses);
         }
 
         sql += getGroupBy(groupingSets);
@@ -259,7 +263,9 @@ public class QueryBuilder
         for (int i = 0; i < parameters.size(); i++) {
             QueryParameter parameter = parameters.get(i);
             int parameterIndex = i + 1;
-            WriteFunction writeFunction = getWriteFunction(session, connection, parameter.getJdbcType(), parameter.getType());
+            WriteFunction writeFunction = parameter.getJdbcType().map(jdbcType -> getWriteFunction(client, session, connection, jdbcType, parameter.getType()))
+                    .orElseGet(() -> getWriteFunction(client, session, parameter.getType()));
+
             Class<?> javaType = writeFunction.getJavaType();
             Object value = parameter.getValue()
                     // The value must be present, since QueryBuilder never creates null parameters. Values coming from Domain's ValueSet are non-null, and
@@ -335,22 +341,23 @@ public class QueryBuilder
                 .getPredicatePushdownController().apply(session, domain).getPushedDown();
     }
 
-    private List<String> toConjuncts(
+    private void toConjuncts(
             ConnectorSession session,
             Connection connection,
             TupleDomain<ColumnHandle> tupleDomain,
+            ImmutableList.Builder<String> conjuncts,
             Consumer<QueryParameter> accumulator)
     {
         if (tupleDomain.isNone()) {
-            return ImmutableList.of(ALWAYS_FALSE);
+            conjuncts.add(ALWAYS_FALSE);
+            return;
         }
         ImmutableList.Builder<String> builder = ImmutableList.builder();
         for (Map.Entry<ColumnHandle, Domain> entry : tupleDomain.getDomains().get().entrySet()) {
             JdbcColumnHandle column = ((JdbcColumnHandle) entry.getKey());
             Domain domain = pushDownDomain(client, session, connection, column, entry.getValue());
-            builder.add(toPredicate(session, connection, column, domain, accumulator));
+            conjuncts.add(toPredicate(session, connection, column, domain, accumulator));
         }
-        return builder.build();
     }
 
     private String toPredicate(ConnectorSession session, Connection connection, JdbcColumnHandle column, Domain domain, Consumer<QueryParameter> accumulator)
@@ -383,7 +390,7 @@ public class QueryBuilder
 
         JdbcTypeHandle jdbcType = column.getJdbcTypeHandle();
         Type type = column.getColumnType();
-        WriteFunction writeFunction = getWriteFunction(session, connection, jdbcType, type);
+        WriteFunction writeFunction = getWriteFunction(client, session, connection, jdbcType, type);
 
         List<String> disjuncts = new ArrayList<>();
         List<Object> singleValues = new ArrayList<>();
@@ -436,13 +443,18 @@ public class QueryBuilder
         return format("%s %s %s", client.quoted(column.getColumnName()), operator, writeFunction.getBindExpression());
     }
 
-    private WriteFunction getWriteFunction(ConnectorSession session, Connection connection, JdbcTypeHandle jdbcType, Type type)
+    private static WriteFunction getWriteFunction(JdbcClient client, ConnectorSession session, Connection connection, JdbcTypeHandle jdbcType, Type type)
     {
         WriteFunction writeFunction = client.toColumnMapping(session, connection, jdbcType)
                 .orElseThrow(() -> new VerifyException(format("Unsupported type %s with handle %s", type, jdbcType)))
                 .getWriteFunction();
         verify(writeFunction.getJavaType() == type.getJavaType(), "Java type mismatch: %s, %s", writeFunction, type);
         return writeFunction;
+    }
+
+    private static WriteFunction getWriteFunction(JdbcClient client, ConnectorSession session, Type type)
+    {
+        return client.toWriteMapping(session, type).getWriteFunction();
     }
 
     private String getGroupBy(Optional<List<List<JdbcColumnHandle>>> groupingSets)

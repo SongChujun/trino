@@ -418,7 +418,7 @@ public class BigQueryMetadata
 
         BigQueryTableHandle updatedHandle = bigQueryTableHandle.withConstraint(newDomain);
 
-        return Optional.of(new ConstraintApplicationResult<>(updatedHandle, constraint.getSummary(), false));
+        return Optional.of(new ConstraintApplicationResult<>(updatedHandle, constraint.getSummary(), constraint.getExpression(), false));
     }
 
     private static boolean containSameElements(Iterable<? extends ColumnHandle> first, Iterable<? extends ColumnHandle> second)

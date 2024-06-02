@@ -29,11 +29,14 @@ import io.trino.operator.scalar.TryFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
+import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.TypeOperators;
+import io.trino.sql.planner.ConnectorExpressionTranslator;
 import io.trino.sql.planner.DomainTranslator;
 import io.trino.sql.planner.ExpressionInterpreter;
+import io.trino.sql.planner.LiteralEncoder;
 import io.trino.sql.planner.LookupSymbolResolver;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolsExtractor;
@@ -51,8 +54,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Sets.intersection;
 import static io.trino.SystemSessionProperties.isAllowPushdownIntoConnectors;
@@ -183,6 +188,17 @@ public class PushPredicateIntoTableScan
                 .transformKeys(node.getAssignments()::get)
                 .intersect(node.getEnforcedConstraint());
 
+        ConnectorExpressionTranslator.ConnectorExpressionTranslation expressionTranslation = ConnectorExpressionTranslator.translateConjuncts(
+                metadata,
+                session,
+                types,
+                typeAnalyzer,
+                decomposedPredicate.getRemainingExpression());
+
+        Map<String, ColumnHandle> connectorExpressionAssignments = node.getAssignments()
+                .entrySet().stream()
+                .collect(toImmutableMap(entry -> entry.getKey().getName(), Map.Entry::getValue));
+
         Map<ColumnHandle, Symbol> assignments = ImmutableBiMap.copyOf(node.getAssignments()).inverse();
 
         Constraint constraint;
@@ -200,76 +216,61 @@ public class PushPredicateIntoTableScan
                             // Simplify the tuple domain to avoid creating an expression with too many nodes,
                             // which would be expensive to evaluate in the call to isCandidate below.
                             domainTranslator.toPredicate(newDomain.simplify().transformKeys(assignments::get))));
-            constraint = new Constraint(newDomain, evaluator::isCandidate, evaluator.getArguments());
+            constraint = new Constraint(newDomain, expressionTranslation.getConnectorExpression(), connectorExpressionAssignments, evaluator::isCandidate, evaluator.getArguments());
         }
         else {
             // Currently, invoking the expression interpreter is very expensive.
             // TODO invoke the interpreter unconditionally when the interpreter becomes cheap enough.
-            constraint = new Constraint(newDomain);
+            constraint = new Constraint(newDomain, expressionTranslation.getConnectorExpression(), connectorExpressionAssignments);
         }
 
         TableHandle newTable;
         Optional<TablePartitioning> newTablePartitioning;
         TupleDomain<ColumnHandle> remainingFilter;
+        Optional<ConnectorExpression> remainingConnectorExpression;
         boolean precalculateStatistics;
-        if (!metadata.usesLegacyTableLayouts(session, node.getTable())) {
+        verify(!metadata.usesLegacyTableLayouts(session, node.getTable()));
             // check if new domain is wider than domain already provided by table scan
-            if (constraint.predicate().isEmpty() && newDomain.contains(node.getEnforcedConstraint())) {
-                Expression resultingPredicate = createResultingPredicate(
-                        metadata,
-                        TRUE_LITERAL,
-                        nonDeterministicPredicate,
-                        decomposedPredicate.getRemainingExpression());
+        if (constraint.predicate().isEmpty() &&
+                io.trino.spi.expression.Constant.TRUE.equals(expressionTranslation.getConnectorExpression()) &&
+                newDomain.contains(node.getEnforcedConstraint())) {
+            Expression resultingPredicate = createResultingPredicate(
+                    metadata,
+                    TRUE_LITERAL,
+                    nonDeterministicPredicate,
+                    decomposedPredicate.getRemainingExpression());
 
-                if (!TRUE_LITERAL.equals(resultingPredicate)) {
-                    return Optional.of(new FilterNode(filterNode.getId(), node, resultingPredicate));
-                }
-
-                return Optional.of(node);
+            if (!TRUE_LITERAL.equals(resultingPredicate)) {
+                return Optional.of(new FilterNode(filterNode.getId(), node, resultingPredicate));
             }
 
-            if (newDomain.isNone()) {
-                // TODO: DomainTranslator.fromPredicate can infer that the expression is "false" in some cases (TupleDomain.none()).
-                // This should move to another rule that simplifies the filter using that logic and then rely on RemoveTrivialFilters
-                // to turn the subtree into a Values node
-                return Optional.of(new ValuesNode(node.getId(), node.getOutputSymbols(), ImmutableList.of()));
-            }
-
-            Optional<ConstraintApplicationResult<TableHandle>> result = metadata.applyFilter(session, node.getTable(), constraint);
-
-            if (result.isEmpty()) {
-                return Optional.empty();
-            }
-
-            newTable = result.get().getHandle();
-
-            TableProperties newTableProperties = metadata.getTableProperties(session, newTable);
-            newTablePartitioning = newTableProperties.getTablePartitioning();
-            if (newTableProperties.getPredicate().isNone()) {
-                return Optional.of(new ValuesNode(node.getId(), node.getOutputSymbols(), ImmutableList.of()));
-            }
-
-            remainingFilter = result.get().getRemainingFilter();
-            precalculateStatistics = result.get().isPrecalculateStatistics();
+            return Optional.of(node);
         }
-        else {
-            Optional<TableLayoutResult> layout = metadata.getLayout(
-                    session,
-                    node.getTable(),
-                    constraint,
-                    Optional.of(node.getOutputSymbols().stream()
-                            .map(node.getAssignments()::get)
-                            .collect(toImmutableSet())));
 
-            if (layout.isEmpty() || layout.get().getTableProperties().getPredicate().isNone()) {
-                return Optional.of(new ValuesNode(node.getId(), node.getOutputSymbols(), ImmutableList.of()));
-            }
-
-            newTable = layout.get().getNewTableHandle();
-            newTablePartitioning = layout.get().getTableProperties().getTablePartitioning();
-            remainingFilter = layout.get().getUnenforcedConstraint();
-            precalculateStatistics = false;
+        if (newDomain.isNone()) {
+            // TODO: DomainTranslator.fromPredicate can infer that the expression is "false" in some cases (TupleDomain.none()).
+            // This should move to another rule that simplifies the filter using that logic and then rely on RemoveTrivialFilters
+            // to turn the subtree into a Values node
+            return Optional.of(new ValuesNode(node.getId(), node.getOutputSymbols(), ImmutableList.of()));
         }
+
+        Optional<ConstraintApplicationResult<TableHandle>> result = metadata.applyFilter(session, node.getTable(), constraint);
+
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+
+        newTable = result.get().getHandle();
+
+        TableProperties newTableProperties = metadata.getTableProperties(session, newTable);
+        newTablePartitioning = newTableProperties.getTablePartitioning();
+        if (newTableProperties.getPredicate().isNone()) {
+            return Optional.of(new ValuesNode(node.getId(), node.getOutputSymbols(), ImmutableList.of()));
+        }
+
+        remainingFilter = result.get().getRemainingFilter();
+        remainingConnectorExpression = result.get().getRemainingExpression();
+        precalculateStatistics = result.get().isPrecalculateStatistics();
 
         verifyTablePartitioning(session, metadata, node, newTablePartitioning);
 
@@ -284,17 +285,45 @@ public class PushPredicateIntoTableScan
                 node.isUpdateTarget(),
                 node.getUseConnectorNodePartitioning());
 
+        Expression remainingDecomposedPredicate;
+        if (remainingConnectorExpression.isEmpty() || remainingConnectorExpression.get().equals(expressionTranslation.getConnectorExpression())) {
+            remainingDecomposedPredicate = decomposedPredicate.getRemainingExpression();
+        }
+        else {
+            Map<String, Symbol> variableMappings = assignments.values().stream()
+                    .collect(toImmutableMap(Symbol::getName, Function.identity()));
+            Expression translatedExpression = ConnectorExpressionTranslator.translate(remainingConnectorExpression.get(), variableMappings, new LiteralEncoder(metadata));
+            if (io.trino.spi.expression.Constant.TRUE.equals(expressionTranslation.getConnectorExpression())) {
+                remainingDecomposedPredicate = combineConjuncts(metadata, translatedExpression, decomposedPredicate.getRemainingExpression());
+            }
+            else {
+                remainingDecomposedPredicate = translatedExpression;
+            }
+        }
+
         Expression resultingPredicate = createResultingPredicate(
                 metadata,
                 domainTranslator.toPredicate(remainingFilter.transformKeys(assignments::get)),
                 nonDeterministicPredicate,
-                decomposedPredicate.getRemainingExpression());
+                remainingDecomposedPredicate);
 
         if (!TRUE_LITERAL.equals(resultingPredicate)) {
             return Optional.of(new FilterNode(filterNode.getId(), tableScan, resultingPredicate));
         }
 
         return Optional.of(tableScan);
+
+//        Expression resultingPredicate = createResultingPredicate(
+//                metadata,
+//                domainTranslator.toPredicate(remainingFilter.transformKeys(assignments::get)),
+//                nonDeterministicPredicate,
+//                decomposedPredicate.getRemainingExpression());
+//
+//        if (!TRUE_LITERAL.equals(resultingPredicate)) {
+//            return Optional.of(new FilterNode(filterNode.getId(), tableScan, resultingPredicate));
+//        }
+//
+//        return Optional.of(tableScan);
     }
 
     // PushPredicateIntoTableScan might be executed after AddExchanges and DetermineTableScanNodePartitioning.

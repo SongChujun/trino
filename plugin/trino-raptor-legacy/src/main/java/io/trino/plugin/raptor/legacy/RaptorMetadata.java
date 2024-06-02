@@ -327,6 +327,7 @@ public class RaptorMetadata
                         table.getBucketAssignments(),
                         table.isDelete()),
                 constraint.getSummary(),
+                constraint.getExpression(),
                 false));
     }
 

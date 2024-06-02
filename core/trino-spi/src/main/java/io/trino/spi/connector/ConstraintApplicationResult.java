@@ -13,7 +13,10 @@
  */
 package io.trino.spi.connector;
 
+import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.predicate.TupleDomain;
+
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -21,16 +24,24 @@ public class ConstraintApplicationResult<T>
 {
     private final T handle;
     private final TupleDomain<ColumnHandle> remainingFilter;
+
+    private final Optional<ConnectorExpression> remainingExpression;
     private final boolean precalculateStatistics;
+
+    public ConstraintApplicationResult(T handle, TupleDomain<ColumnHandle> remainingFilter, ConnectorExpression remainingExpression, boolean precalculateStatistics)
+    {
+        this(handle, remainingFilter, Optional.of(remainingExpression), precalculateStatistics);
+    }
 
     /**
      * @param precalculateStatistics Indicates whether engine should consider calculating statistics based on the plan before pushdown,
      * as the connector may be unable to provide good table statistics for {@code handle}.
      */
-    public ConstraintApplicationResult(T handle, TupleDomain<ColumnHandle> remainingFilter, boolean precalculateStatistics)
+    public ConstraintApplicationResult(T handle, TupleDomain<ColumnHandle> remainingFilter, Optional<ConnectorExpression> remainingExpression, boolean precalculateStatistics)
     {
         this.handle = requireNonNull(handle, "handle is null");
         this.remainingFilter = requireNonNull(remainingFilter, "remainingFilter is null");
+        this.remainingExpression = requireNonNull(remainingExpression, "remainingExpression is null");
         this.precalculateStatistics = precalculateStatistics;
     }
 
@@ -42,6 +53,11 @@ public class ConstraintApplicationResult<T>
     public TupleDomain<ColumnHandle> getRemainingFilter()
     {
         return remainingFilter;
+    }
+
+    public Optional<ConnectorExpression> getRemainingExpression()
+    {
+        return remainingExpression;
     }
 
     public boolean isPrecalculateStatistics()

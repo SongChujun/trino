@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.slice.Slice;
 import io.trino.plugin.jdbc.PredicatePushdownController.DomainPushdownResult;
+import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.AggregationApplicationResult;
@@ -50,6 +51,7 @@ import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.connector.TableScanRedirectApplicationResult;
 import io.trino.spi.connector.TopNApplicationResult;
+import io.trino.spi.expression.Call;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.expression.Variable;
@@ -60,6 +62,7 @@ import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.statistics.ComputedStatistics;
 import io.trino.spi.statistics.TableStatistics;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -75,11 +78,16 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.base.Verify.verifyNotNull;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.plugin.base.expression.ConnectorExpressions.and;
+import static io.trino.plugin.base.expression.ConnectorExpressions.extractConjuncts;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isAggregationPushdownEnabled;
+import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isComplexExpressionPushdownEnabled;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isJoinPushdownEnabled;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isSortPushdownEnabled;
 import static io.trino.plugin.jdbc.JdbcMetadataSessionProperties.isTopNPushdownEnabled;
 import static io.trino.spi.StandardErrorCode.PERMISSION_DENIED;
+import static io.trino.spi.expression.Constant.TRUE;
+import static io.trino.spi.expression.StandardFunctions.AND_FUNCTION_NAME;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
 
@@ -135,9 +143,13 @@ public class DefaultJdbcMetadata
         TupleDomain<ColumnHandle> oldDomain = handle.getConstraint();
         TupleDomain<ColumnHandle> newDomain = oldDomain.intersect(constraint.getSummary());
 
+        List<ParameterizedExpression> newConstraintExpressions;
         TupleDomain<ColumnHandle> remainingFilter;
+        ConnectorExpression remainingExpression;
         if (newDomain.isNone()) {
+            newConstraintExpressions = ImmutableList.of();
             remainingFilter = TupleDomain.all();
+            remainingExpression = Constant.TRUE;
         }
         else {
             Map<ColumnHandle, Domain> domains = newDomain.getDomains().orElseThrow();
@@ -162,22 +174,46 @@ public class DefaultJdbcMetadata
 
             newDomain = TupleDomain.withColumnDomains(supported);
             remainingFilter = TupleDomain.withColumnDomains(unsupported);
+
+            if (isComplexExpressionPushdownEnabled(session)) {
+                List<ParameterizedExpression> newExpressions = new ArrayList<>();
+                List<ConnectorExpression> remainingExpressions = new ArrayList<>();
+                for (ConnectorExpression expression : extractConjuncts(constraint.getExpression())) {
+                    Optional<ParameterizedExpression> converted = jdbcClient.convertPredicate(session, expression, constraint.getAssignments());
+                    if (converted.isPresent()) {
+                        newExpressions.add(converted.get());
+                    }
+                    else {
+                        remainingExpressions.add(expression);
+                    }
+                }
+                newConstraintExpressions = ImmutableSet.<ParameterizedExpression>builder()
+                        .addAll(handle.getConstraintExpressions())
+                        .addAll(newExpressions)
+                        .build().asList();
+                remainingExpression = and(remainingExpressions);
+            }
+            else {
+                newConstraintExpressions = ImmutableList.of();
+                remainingExpression = constraint.getExpression();
+            }
         }
 
-        if (oldDomain.equals(newDomain)) {
+        if (oldDomain.equals(newDomain) && handle.getConstraintExpressions().equals(newConstraintExpressions)) {
             return Optional.empty();
         }
 
         handle = new JdbcTableHandle(
                 handle.getRelationHandle(),
                 newDomain,
+                newConstraintExpressions,
                 handle.getSortOrder(),
                 handle.getLimit(),
                 handle.getColumns(),
                 handle.getOtherReferencedTables(),
                 handle.getNextSyntheticColumnId());
 
-        return Optional.of(new ConstraintApplicationResult<>(handle, remainingFilter, false));
+        return Optional.of(new ConstraintApplicationResult<>(handle, remainingFilter, remainingExpression, false));
     }
 
     private JdbcTableHandle flushAttributesAsQuery(ConnectorSession session, JdbcTableHandle handle)
@@ -188,6 +224,7 @@ public class DefaultJdbcMetadata
         return new JdbcTableHandle(
                 new JdbcQueryRelationHandle(preparedQuery),
                 TupleDomain.all(),
+                ImmutableList.of(),
                 Optional.empty(),
                 OptionalLong.empty(),
                 Optional.of(columns),
@@ -216,6 +253,7 @@ public class DefaultJdbcMetadata
                 new JdbcTableHandle(
                         handle.getRelationHandle(),
                         handle.getConstraint(),
+                        handle.getConstraintExpressions(),
                         handle.getSortOrder(),
                         handle.getLimit(),
                         Optional.of(newColumns),
@@ -307,6 +345,7 @@ public class DefaultJdbcMetadata
         handle = new JdbcTableHandle(
                 new JdbcQueryRelationHandle(preparedQuery),
                 TupleDomain.all(),
+                ImmutableList.of(),
                 Optional.empty(),
                 OptionalLong.empty(),
                 Optional.of(newColumnsList),
@@ -402,6 +441,7 @@ public class DefaultJdbcMetadata
                 new JdbcTableHandle(
                         new JdbcQueryRelationHandle(joinQuery.get()),
                         TupleDomain.all(),
+                        ImmutableList.of(),
                         Optional.empty(),
                         OptionalLong.empty(),
                         Optional.of(
@@ -474,6 +514,7 @@ public class DefaultJdbcMetadata
         handle = new JdbcTableHandle(
                 handle.getRelationHandle(),
                 handle.getConstraint(),
+                handle.getConstraintExpressions(),
                 handle.getSortOrder(),
                 OptionalLong.of(limit),
                 handle.getColumns(),
@@ -522,6 +563,7 @@ public class DefaultJdbcMetadata
         JdbcTableHandle sortedTableHandle = new JdbcTableHandle(
                 handle.getRelationHandle(),
                 handle.getConstraint(),
+                handle.getConstraintExpressions(),
                 Optional.of(resultSortOrder),
                 OptionalLong.of(topNCount),
                 handle.getColumns(),
@@ -569,6 +611,7 @@ public class DefaultJdbcMetadata
         JdbcTableHandle sortedTableHandle = new JdbcTableHandle(
                 handle.getRelationHandle(),
                 handle.getConstraint(),
+                handle.getConstraintExpressions(),
                 Optional.of(resultSortOrder),
                 handle.getLimit(),
                 handle.getColumns(),

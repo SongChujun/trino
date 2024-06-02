@@ -2264,7 +2264,8 @@ public class HiveMetadata
             return Optional.empty();
         }
 
-        return Optional.of(new ConstraintApplicationResult<>(newHandle, partitionResult.getUnenforcedConstraint(), false));
+        return Optional.of(new ConstraintApplicationResult<>(newHandle, partitionResult.getUnenforcedConstraint(),
+                constraint.getExpression(), false));
     }
 
     @Override

@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.SchemaTableName;
@@ -41,6 +42,8 @@ public final class JdbcTableHandle
     private final JdbcRelationHandle relationHandle;
 
     private final TupleDomain<ColumnHandle> constraint;
+
+    private final List<ParameterizedExpression> constraintExpressions;
 
     // semantically sort order is applied after constraint
     private final Optional<List<JdbcSortItem>> sortOrder;
@@ -69,6 +72,7 @@ public final class JdbcTableHandle
         this(
                 new JdbcNamedRelationHandle(schemaTableName, remoteTableName),
                 TupleDomain.all(),
+                ImmutableList.of(),
                 Optional.empty(),
                 OptionalLong.empty(),
                 Optional.empty(),
@@ -80,6 +84,7 @@ public final class JdbcTableHandle
     public JdbcTableHandle(
             @JsonProperty("relationHandle") JdbcRelationHandle relationHandle,
             @JsonProperty("constraint") TupleDomain<ColumnHandle> constraint,
+            @JsonProperty("constraintExpressions") List<ParameterizedExpression> constraintExpressions,
             @JsonProperty("sortOrder") Optional<List<JdbcSortItem>> sortOrder,
             @JsonProperty("limit") OptionalLong limit,
             @JsonProperty("columns") Optional<List<JdbcColumnHandle>> columns,
@@ -88,6 +93,7 @@ public final class JdbcTableHandle
     {
         this.relationHandle = requireNonNull(relationHandle, "relationHandle is null");
         this.constraint = requireNonNull(constraint, "constraint is null");
+        this.constraintExpressions = ImmutableList.copyOf(requireNonNull(constraintExpressions, "constraintExpressions is null"));
         this.sortOrder = requireNonNull(sortOrder, "sortOrder is null")
                 .map(ImmutableList::copyOf);
         this.limit = requireNonNull(limit, "limit is null");
@@ -137,6 +143,12 @@ public final class JdbcTableHandle
     public JdbcRelationHandle getRelationHandle()
     {
         return relationHandle;
+    }
+
+    @JsonProperty
+    public List<ParameterizedExpression> getConstraintExpressions()
+    {
+        return constraintExpressions;
     }
 
     /**
@@ -254,6 +266,7 @@ public final class JdbcTableHandle
         JdbcTableHandle o = (JdbcTableHandle) obj;
         return Objects.equals(this.relationHandle, o.relationHandle) &&
                 Objects.equals(this.constraint, o.constraint) &&
+                Objects.equals(this.constraintExpressions, o.constraintExpressions) &&
                 Objects.equals(this.sortOrder, o.sortOrder) &&
                 Objects.equals(this.limit, o.limit) &&
                 Objects.equals(this.columns, o.columns) &&
@@ -263,7 +276,7 @@ public final class JdbcTableHandle
     @Override
     public int hashCode()
     {
-        return Objects.hash(relationHandle, constraint, sortOrder, limit, columns, nextSyntheticColumnId);
+        return Objects.hash(relationHandle, constraint, constraintExpressions, sortOrder, limit, columns, nextSyntheticColumnId);
     }
 
     @Override
@@ -281,6 +294,11 @@ public final class JdbcTableHandle
                     .map(columnHandle -> ((JdbcColumnHandle) columnHandle).getColumnName())
                     .collect(Collectors.joining(", ", "[", "]")));
         }
+
+        if (!constraintExpressions.isEmpty()) {
+            builder.append(" constraints=").append(constraintExpressions);
+        }
+
         sortOrder.ifPresent(value -> builder.append(" sortOrder=").append(value));
         limit.ifPresent(value -> builder.append(" limit=").append(value));
         columns.ifPresent(value -> builder.append(" columns=").append(value));

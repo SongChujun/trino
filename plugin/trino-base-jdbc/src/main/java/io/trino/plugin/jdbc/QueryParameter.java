@@ -29,11 +29,21 @@ import static java.util.Objects.requireNonNull;
 
 public final class QueryParameter
 {
-    private final JdbcTypeHandle jdbcType;
+    private final Optional<JdbcTypeHandle> jdbcType;
     private final Type type;
     private final Optional<Object> value;
 
+    public QueryParameter(Type type, Optional<Object> value)
+    {
+        this(Optional.empty(), type, value);
+    }
+
     public QueryParameter(JdbcTypeHandle jdbcType, Type type, Optional<Object> value)
+    {
+        this(Optional.of(jdbcType), type, value);
+    }
+
+    public QueryParameter(Optional<JdbcTypeHandle> jdbcType, Type type, Optional<Object> value)
     {
         this.jdbcType = requireNonNull(jdbcType, "jdbcType is null");
         this.type = requireNonNull(type, "type is null");
@@ -41,7 +51,7 @@ public final class QueryParameter
     }
 
     @JsonCreator
-    public static QueryParameter fromValueAsBlock(JdbcTypeHandle jdbcType, Type type, Block valueBlock)
+    public static QueryParameter fromValueAsBlock(Optional<JdbcTypeHandle> jdbcType, Type type, Block valueBlock)
     {
         requireNonNull(type, "type is null");
         requireNonNull(valueBlock, "valueBlock is null");
@@ -51,7 +61,7 @@ public final class QueryParameter
     }
 
     @JsonProperty
-    public JdbcTypeHandle getJdbcType()
+    public Optional<JdbcTypeHandle> getJdbcType()
     {
         return jdbcType;
     }

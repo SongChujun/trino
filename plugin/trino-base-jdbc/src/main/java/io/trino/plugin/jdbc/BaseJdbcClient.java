@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import io.airlift.log.Logger;
+import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.plugin.jdbc.mapping.IdentifierMapping;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
@@ -466,7 +467,23 @@ public abstract class BaseJdbcClient
                 columns,
                 columnExpressions,
                 table.getConstraint(),
-                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "", QueryBuilder.Datasource.OTHER));
+                split.isPresent() ? split.get().getAdditionalPredicate().split("_")[1] : "",
+                getAdditionalPredicate(table.getConstraintExpressions()),
+                QueryBuilder.Datasource.OTHER));
+    }
+
+    protected static Optional<ParameterizedExpression> getAdditionalPredicate(List<ParameterizedExpression> constraintExpressions)
+    {
+        if (constraintExpressions.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new ParameterizedExpression(
+                constraintExpressions.stream().map(ParameterizedExpression::getExpression)
+                        .collect(joining(") AND (", "(", ")")),
+                constraintExpressions.stream()
+                        .flatMap(expressionRewrite -> expressionRewrite.getParameters().stream())
+                        .collect(toImmutableList())));
     }
 
     @Override

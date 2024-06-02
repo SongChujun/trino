@@ -14,9 +14,13 @@
 package io.trino.sql.planner;
 
 import io.trino.Session;
+import io.trino.metadata.Metadata;
+import io.trino.plugin.base.expression.ConnectorExpressions;
+import io.trino.spi.expression.Call;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.expression.FieldDereference;
+import io.trino.spi.expression.StandardFunctions;
 import io.trino.spi.expression.Variable;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.RowType;
@@ -28,6 +32,7 @@ import io.trino.sql.tree.CharLiteral;
 import io.trino.sql.tree.DecimalLiteral;
 import io.trino.sql.tree.DoubleLiteral;
 import io.trino.sql.tree.Expression;
+import io.trino.sql.tree.LikePredicate;
 import io.trino.sql.tree.LongLiteral;
 import io.trino.sql.tree.NodeRef;
 import io.trino.sql.tree.NullLiteral;
@@ -35,9 +40,13 @@ import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.SubscriptExpression;
 import io.trino.sql.tree.SymbolReference;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.trino.sql.ExpressionUtils.combineConjuncts;
+import static io.trino.sql.ExpressionUtils.extractConjuncts;
 import static java.util.Objects.requireNonNull;
 
 public final class ConnectorExpressionTranslator
@@ -53,6 +62,32 @@ public final class ConnectorExpressionTranslator
     {
         return new SqlToConnectorExpressionTranslator(types.getTypes(session, inputTypes, expression))
                 .process(expression);
+    }
+
+    public static ConnectorExpressionTranslation translateConjuncts(
+            Metadata metadata,
+            Session session,
+            TypeProvider types,
+            TypeAnalyzer typeAnalyzer,
+            Expression expression)
+    {
+        SqlToConnectorExpressionTranslator translator = new SqlToConnectorExpressionTranslator(typeAnalyzer.getTypes(session, types, expression));
+
+        List<Expression> conjuncts = extractConjuncts(expression);
+        List<Expression> remaining = new ArrayList<>();
+        List<ConnectorExpression> converted = new ArrayList<>(conjuncts.size());
+        for (Expression conjunct : conjuncts) {
+            Optional<ConnectorExpression> connectorExpression = translator.process(conjunct);
+            if (connectorExpression.isPresent()) {
+                converted.add(connectorExpression.get());
+            }
+            else {
+                remaining.add(conjunct);
+            }
+        }
+        return new ConnectorExpressionTranslation(
+                ConnectorExpressions.and(converted),
+                combineConjuncts(metadata, remaining));
     }
 
     private static class ConnectorToSqlExpressionTranslator
@@ -82,6 +117,28 @@ public final class ConnectorExpressionTranslator
             }
 
             throw new UnsupportedOperationException("Expression type not supported: " + expression.getClass().getName());
+        }
+    }
+
+    public static class ConnectorExpressionTranslation
+    {
+        private final ConnectorExpression connectorExpression;
+        private final Expression remainingExpression;
+
+        public ConnectorExpressionTranslation(ConnectorExpression connectorExpression, Expression remainingExpression)
+        {
+            this.connectorExpression = requireNonNull(connectorExpression, "connectorExpression is null");
+            this.remainingExpression = requireNonNull(remainingExpression, "remainingExpression is null");
+        }
+
+        public Expression getRemainingExpression()
+        {
+            return remainingExpression;
+        }
+
+        public ConnectorExpression getConnectorExpression()
+        {
+            return connectorExpression;
         }
     }
 
@@ -163,6 +220,25 @@ public final class ConnectorExpressionTranslator
 
             return Optional.of(new FieldDereference(typeOf(node), translatedBase.get(), (int) (((LongLiteral) node.getIndex()).getValue() - 1)));
         }
+
+        @Override
+        protected Optional<ConnectorExpression> visitLikePredicate(LikePredicate node, Void context)
+        {
+            Optional<ConnectorExpression> value = process(node.getValue());
+            Optional<ConnectorExpression> pattern = process(node.getPattern());
+            if (value.isPresent() && pattern.isPresent()) {
+                if (node.getEscape().isEmpty()) {
+                    return Optional.of(new Call(typeOf(node), StandardFunctions.LIKE_FUNCTION_NAME, List.of(value.get(), pattern.get())));
+                }
+
+                Optional<ConnectorExpression> escape = process(node.getEscape().get());
+                if (escape.isPresent()) {
+                    return Optional.of(new Call(typeOf(node), StandardFunctions.LIKE_FUNCTION_NAME, List.of(value.get(), pattern.get(), escape.get())));
+                }
+            }
+            return Optional.empty();
+        }
+
 
         @Override
         protected Optional<ConnectorExpression> visitExpression(Expression node, Void context)

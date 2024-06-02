@@ -267,7 +267,8 @@ public class PinotMetadata
                 newDomain,
                 handle.getLimit(),
                 handle.getQuery());
-        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(), false));
+        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(),
+                constraint.getExpression(), false));
     }
 
     @Override

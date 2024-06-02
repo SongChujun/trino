@@ -240,6 +240,7 @@ public class CassandraMetadata
                         Optional.of(partitionResult.getPartitions()),
                         clusteringKeyPredicates),
                         unenforcedConstraint,
+                        constraint.getExpression(),
                         false));
     }
 

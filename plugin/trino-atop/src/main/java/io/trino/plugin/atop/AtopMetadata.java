@@ -192,6 +192,7 @@ public class AtopMetadata
                 newStartTimeDomain,
                 newEndTimeDomain);
 
-        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(), false));
+        return Optional.of(new ConstraintApplicationResult<>(handle, constraint.getSummary(),
+                constraint.getExpression(), false));
     }
 }
