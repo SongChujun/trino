@@ -108,6 +108,7 @@ public class PushProjectionIntoTableScan
         for (Map.Entry<Symbol, Expression> expression : inputExpressions.entrySet()) {
             Map<NodeRef<Expression>, ConnectorExpression> partialTranslations = extractPartialTranslations(
                     expression.getValue(),
+                    metadata,
                     context.getSession(),
                     typeAnalyzer,
                     context.getSymbolAllocator().getTypes());

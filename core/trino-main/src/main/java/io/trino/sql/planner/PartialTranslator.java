@@ -15,6 +15,7 @@ package io.trino.sql.planner;
 
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
+import io.trino.metadata.Metadata;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.type.Type;
 import io.trino.sql.tree.AstVisitor;
@@ -38,6 +39,7 @@ public final class PartialTranslator
      */
     public static Map<NodeRef<Expression>, ConnectorExpression> extractPartialTranslations(
             Expression inputExpression,
+            Metadata metadata,
             Session session,
             TypeAnalyzer typeAnalyzer,
             TypeProvider typeProvider)
@@ -48,7 +50,7 @@ public final class PartialTranslator
         requireNonNull(typeProvider, "typeProvider is null");
 
         Map<NodeRef<Expression>, ConnectorExpression> partialTranslations = new HashMap<>();
-        new Visitor(typeAnalyzer.getTypes(session, typeProvider, inputExpression), partialTranslations).process(inputExpression);
+        new Visitor(typeAnalyzer.getTypes(session, typeProvider, inputExpression),metadata, session, partialTranslations).process(inputExpression);
         return ImmutableMap.copyOf(partialTranslations);
     }
 
@@ -58,11 +60,11 @@ public final class PartialTranslator
         private final Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions;
         private final ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator translator;
 
-        Visitor(Map<NodeRef<Expression>, Type> types, Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions)
+        Visitor(Map<NodeRef<Expression>, Type> types, Metadata metadata, Session session, Map<NodeRef<Expression>, ConnectorExpression> translatedSubExpressions)
         {
             requireNonNull(types, "types is null");
             this.translatedSubExpressions = requireNonNull(translatedSubExpressions, "translatedSubExpressions is null");
-            this.translator = new ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator(types);
+            this.translator = new ConnectorExpressionTranslator.SqlToConnectorExpressionTranslator(metadata, session, types);
         }
 
         @Override

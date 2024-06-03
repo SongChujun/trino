@@ -86,17 +86,17 @@ public class TestPartialTranslator
 
     private void assertPartialTranslation(Expression expression, List<Expression> subexpressions)
     {
-        Map<NodeRef<Expression>, ConnectorExpression> translation = extractPartialTranslations(expression, TEST_SESSION, TYPE_ANALYZER, TYPE_PROVIDER);
+        Map<NodeRef<Expression>, ConnectorExpression> translation = extractPartialTranslations(expression, METADATA, TEST_SESSION, TYPE_ANALYZER, TYPE_PROVIDER);
         assertEquals(subexpressions.size(), translation.size());
         for (Expression subexpression : subexpressions) {
-            assertEquals(translation.get(NodeRef.of(subexpression)), translate(TEST_SESSION, subexpression, TYPE_ANALYZER, TYPE_PROVIDER).get());
+            assertEquals(translation.get(NodeRef.of(subexpression)), translate(METADATA, TEST_SESSION, subexpression, TYPE_ANALYZER, TYPE_PROVIDER).get());
         }
     }
 
     private void assertFullTranslation(Expression expression)
     {
-        Map<NodeRef<Expression>, ConnectorExpression> translation = extractPartialTranslations(expression, TEST_SESSION, TYPE_ANALYZER, TYPE_PROVIDER);
+        Map<NodeRef<Expression>, ConnectorExpression> translation = extractPartialTranslations(expression, METADATA, TEST_SESSION, TYPE_ANALYZER, TYPE_PROVIDER);
         assertEquals(getOnlyElement(translation.keySet()), NodeRef.of(expression));
-        assertEquals(getOnlyElement(translation.values()), translate(TEST_SESSION, expression, TYPE_ANALYZER, TYPE_PROVIDER).get());
+        assertEquals(getOnlyElement(translation.values()), translate(METADATA, TEST_SESSION, expression, TYPE_ANALYZER, TYPE_PROVIDER).get());
     }
 }
