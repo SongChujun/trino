@@ -56,6 +56,7 @@ import io.trino.sql.planner.plan.IndexSourceNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
 import io.trino.sql.planner.plan.PlanNode;
@@ -557,6 +558,34 @@ public final class PropertyDerivations
 
         @Override
         public ActualProperties visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, List<ActualProperties> inputProperties)
+        {
+            ActualProperties leftProperties = inputProperties.get(0);
+            ActualProperties rightProperties = inputProperties.get(1);
+
+            boolean unordered = spillPossible(session, node.getType());
+
+            if (node.getType() == JoinNode.Type.INNER) {
+                leftProperties = leftProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+                rightProperties = rightProperties.translate(column -> filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column));
+
+                Map<Symbol, NullableValue> constants = new HashMap<>();
+                constants.putAll(leftProperties.getConstants());
+                constants.putAll(rightProperties.getConstants());
+
+                if (node.isCrossJoin()) {
+                    throw new UnsupportedOperationException("Cross join not supported");
+                }
+
+                return ActualProperties.builderFrom(leftProperties)
+                        .constants(constants)
+                        .unordered(unordered)
+                        .build();
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
+        @Override
+        public ActualProperties visitOffloadSortJoin(OffloadSortJoinNode node, List<ActualProperties> inputProperties)
         {
             ActualProperties leftProperties = inputProperties.get(0);
             ActualProperties rightProperties = inputProperties.get(1);

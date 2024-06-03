@@ -46,6 +46,7 @@ import io.trino.sql.planner.plan.IndexSourceNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
 import io.trino.sql.planner.plan.PlanNode;
@@ -264,6 +265,20 @@ public final class StreamPropertyDerivations
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
         }
 
+        @Override
+        public StreamProperties visitOffloadSortJoin(OffloadSortJoinNode node, List<StreamProperties> inputProperties)
+        {
+            StreamProperties leftProperties = inputProperties.get(0);
+            boolean unordered = spillPossible(session, node);
+
+            if (node.getType() == JoinNode.Type.INNER) {
+                return leftProperties
+                        .translate(column -> PropertyDerivations.filterOrRewrite(node.getOutputSymbols(), node.getCriteria(), column))
+                        .unordered(unordered);
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
         private static boolean spillPossible(Session session, JoinNode node)
         {
             return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
@@ -275,6 +290,11 @@ public final class StreamPropertyDerivations
         }
 
         private static boolean spillPossible(Session session, SortMergeAdaptiveJoinNode node)
+        {
+            return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
+        }
+
+        private static boolean spillPossible(Session session, OffloadSortJoinNode node)
         {
             return isSpillEnabled(session) && node.isSpillable().orElseThrow(() -> new IllegalArgumentException("spillable not yet set"));
         }

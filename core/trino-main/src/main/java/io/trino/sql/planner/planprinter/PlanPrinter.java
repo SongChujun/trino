@@ -72,6 +72,7 @@ import io.trino.sql.planner.plan.IntersectNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OffsetNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
@@ -534,6 +535,42 @@ public class PlanPrinter
             }
             node.getLeftUp().accept(this, context);
             node.getLeftDown().accept(this, context);
+            node.getRightUp().accept(this, context);
+            node.getRightDown().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitOffloadSortJoin(OffloadSortJoinNode node, Void context)
+        {
+            List<Expression> joinExpressions = new ArrayList<>();
+            for (JoinNode.EquiJoinClause clause : node.getCriteria()) {
+                joinExpressions.add(unresolveFunctions(clause.toExpression()));
+            }
+            node.getFilter()
+                    .map(PlanPrinter::unresolveFunctions)
+                    .ifPresent(joinExpressions::add);
+
+            NodeRepresentation nodeOutput;
+            if (node.isCrossJoin()) {
+                checkState(joinExpressions.isEmpty());
+                nodeOutput = addNode(node, "CrossJoin");
+            }
+            else {
+                nodeOutput = addNode(node,
+                        node.getType().getJoinLabel(),
+                        format("[%s]%s", Joiner.on(" AND ").join(joinExpressions), formatHash(node.getLeftHashSymbol(), node.getRightHashSymbol())),
+                        node.getReorderJoinStatsAndCost());
+            }
+
+            node.getDistributionType().ifPresent(distributionType -> nodeOutput.appendDetailsLine("Distribution: %s", distributionType));
+            if (node.isMaySkipOutputDuplicates()) {
+                nodeOutput.appendDetailsLine("maySkipOutputDuplicates = %s", node.isMaySkipOutputDuplicates());
+            }
+            if (!node.getDynamicFilters().isEmpty()) {
+                nodeOutput.appendDetails("dynamicFilterAssignments = %s", printDynamicFilterAssignments(node.getDynamicFilters()));
+            }
+            node.getLeft().accept(this, context);
             node.getRightUp().accept(this, context);
             node.getRightDown().accept(this, context);
             return null;

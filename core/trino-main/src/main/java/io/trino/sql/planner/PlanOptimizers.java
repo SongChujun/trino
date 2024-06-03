@@ -78,6 +78,7 @@ import io.trino.sql.planner.iterative.rule.MergeLimits;
 import io.trino.sql.planner.iterative.rule.MergeProjectWithValues;
 import io.trino.sql.planner.iterative.rule.MergeUnion;
 import io.trino.sql.planner.iterative.rule.MultipleDistinctAggregationToMarkDistinct;
+import io.trino.sql.planner.iterative.rule.OffloadSortForJoin;
 import io.trino.sql.planner.iterative.rule.OptimizeDuplicateInsensitiveJoins;
 import io.trino.sql.planner.iterative.rule.OptimizeRowPattern;
 import io.trino.sql.planner.iterative.rule.PruneAggregationColumns;
@@ -845,6 +846,21 @@ public class PlanOptimizers
                             // PushJoinIntoTableScan must run after ReorderJoins (and DetermineJoinDistributionType)
                             // otherwise too early pushdown could prevent optimal plan from being selected.
                             .add(new PushJoinIntoTableScan(metadata, splitManager))
+                            // DetermineTableScanNodePartitioning is needed to needs to ensure all table handles have proper partitioning determined
+                            // Must run before AddExchanges
+                            .add(new DetermineTableScanNodePartitioning(metadata, nodePartitioningManager, taskCountEstimator))
+                            .build()));
+
+            builder.add(new IterativeOptimizer(
+                    metadata,
+                    ruleStats,
+                    statsCalculator,
+                    estimatedExchangesCostCalculator,
+                    ImmutableSet.<Rule<?>>builder()
+                            .addAll(pushIntoTableScanRulesExceptJoins)
+                            // PushJoinIntoTableScan must run after ReorderJoins (and DetermineJoinDistributionType)
+                            // otherwise too early pushdown could prevent optimal plan from being selected.
+                            .add(new OffloadSortForJoin(metadata, splitManager))
                             // DetermineTableScanNodePartitioning is needed to needs to ensure all table handles have proper partitioning determined
                             // Must run before AddExchanges
                             .add(new DetermineTableScanNodePartitioning(metadata, nodePartitioningManager, taskCountEstimator))

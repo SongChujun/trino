@@ -126,6 +126,9 @@ public final class SystemSessionProperties
     public static final String UNWRAP_CASTS = "unwrap_casts";
     public static final String SKIP_REDUNDANT_SORT = "skip_redundant_sort";
     public static final String ALLOW_PUSHDOWN_INTO_CONNECTORS = "allow_pushdown_into_connectors";
+
+    public static final String ALLOW_OFFLOAD_SORT_FOR_JOIN_INTO_CONNECTORS = "allow_offload_sort_for_join_into_connectors";
+
     public static final String USE_SIMPLE_JOIN = "use_simple_join";
     public static final String ELASTIC_JOIN_TYPE = "elastic_join_type";
 
@@ -587,6 +590,12 @@ public final class SystemSessionProperties
                         false),
                 booleanProperty(
                         ALLOW_PUSHDOWN_INTO_CONNECTORS,
+                        "Allow pushdown into connectors",
+                        // This is a diagnostic property
+                        true,
+                        true),
+                booleanProperty(
+                        ALLOW_OFFLOAD_SORT_FOR_JOIN_INTO_CONNECTORS,
                         "Allow pushdown into connectors",
                         // This is a diagnostic property
                         true,
@@ -1140,6 +1149,11 @@ public final class SystemSessionProperties
     public static boolean isAllowPushdownIntoConnectors(Session session)
     {
         return session.getSystemProperty(ALLOW_PUSHDOWN_INTO_CONNECTORS, Boolean.class);
+    }
+
+    public static boolean isAllowOffloadSortForJoinIntoConnectors(Session session)
+    {
+        return session.getSystemProperty(ALLOW_OFFLOAD_SORT_FOR_JOIN_INTO_CONNECTORS, Boolean.class);
     }
 
     public static boolean useSimpleJoin(Session session)

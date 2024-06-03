@@ -24,6 +24,7 @@ import io.trino.sql.planner.plan.AdaptiveJoinNode;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.JoinNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanVisitor;
@@ -156,6 +157,15 @@ public class AllAtOnceExecutionSchedule
         {
             node.getLeftUp().accept(this, context);
             node.getLeftDown().accept(this, context);
+            node.getRightUp().accept(this, context);
+            node.getRightDown().accept(this, context);
+            return null;
+        }
+
+        @Override
+        public Void visitOffloadSortJoin(OffloadSortJoinNode node, Void context)
+        {
+            node.getLeft().accept(this, context);
             node.getRightUp().accept(this, context);
             node.getRightDown().accept(this, context);
             return null;

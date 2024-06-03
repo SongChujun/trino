@@ -48,6 +48,7 @@ import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.IndexJoinNode.EquiJoinClause;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanVisitor;
 import io.trino.sql.planner.plan.ProjectNode;
@@ -412,6 +413,39 @@ public class HashGenerationOptimizer
             return buildSortMergeAdaptiveJoinNodeWithPreferredHashes(node, leftUp, leftDown, rightUp, rightDown, allHashSymbols, parentPreference, Optional.of(leftHashSymbol), Optional.of(rightHashSymbol));
         }
 
+        @Override
+        public PlanWithProperties visitOffloadSortJoin(OffloadSortJoinNode node, HashComputationSet parentPreference)
+        {
+            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
+            if (clauses.isEmpty()) {
+                throw new UnsupportedOperationException("cross join not supported");
+            }
+
+            // join does not pass through preferred hash symbols since they take more memory and since
+            // the join node filters, may take more compute
+            Optional<HashComputation> leftHashComputation = computeHash(Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft));
+            PlanWithProperties left = planAndEnforce(node.getLeft(), new HashComputationSet(leftHashComputation), true, new HashComputationSet(leftHashComputation));
+            Symbol leftHashSymbol = left.getRequiredHashSymbol(leftHashComputation.get());
+
+            Optional<HashComputation> rightHashComputation = computeHash(Lists.transform(clauses, JoinNode.EquiJoinClause::getRight));
+            // drop undesired hash symbols from build to save memory
+            PlanWithProperties rightUp = planAndEnforce(node.getRightUp(), new HashComputationSet(rightHashComputation), true, new HashComputationSet(rightHashComputation));
+            PlanWithProperties rightDown = planAndEnforce(node.getRightDown(), new HashComputationSet(rightHashComputation), true, new HashComputationSet(rightHashComputation));
+            Symbol rightHashSymbol = rightUp.getRequiredHashSymbol(rightHashComputation.get());
+
+            // build map of all hash symbols
+            // NOTE: Full outer join doesn't use hash symbols
+            Map<HashComputation, Symbol> allHashSymbols = new HashMap<>();
+            if (node.getType() == INNER) {
+                allHashSymbols.putAll(left.getHashSymbols());
+                allHashSymbols.putAll(rightUp.getHashSymbols());
+            }
+            else {
+                throw new UnsupportedOperationException("no equi join not supported");
+            }
+            return buildOffloadSortJoinNodeWithPreferredHashes(node, left, rightUp, rightDown, allHashSymbols, parentPreference, Optional.of(leftHashSymbol), Optional.of(rightHashSymbol));
+        }
+
         private PlanWithProperties buildJoinNodeWithPreferredHashes(
                 JoinNode node,
                 PlanWithProperties left,
@@ -542,6 +576,55 @@ public class HashGenerationOptimizer
                             node.getAdaptiveExecutionType(),
                             leftUp.getNode(),
                             leftDown.getNode(),
+                            rightUp.getNode(),
+                            rightDown.getNode(),
+                            node.getCriteria(),
+                            newLeftOutputSymbols,
+                            newRightOutputSymbols,
+                            node.isMaySkipOutputDuplicates(),
+                            node.getFilter(),
+                            leftHashSymbol,
+                            rightHashSymbol,
+                            node.getDistributionType(),
+                            node.isSpillable(),
+                            node.getDynamicFilters(),
+                            node.getReorderJoinStatsAndCost()),
+                    hashSymbolsWithParentPreferences);
+        }
+
+        private PlanWithProperties buildOffloadSortJoinNodeWithPreferredHashes(
+                OffloadSortJoinNode node,
+                PlanWithProperties left,
+                PlanWithProperties rightUp,
+                PlanWithProperties rightDown,
+                Map<HashComputation, Symbol> allHashSymbols,
+                HashComputationSet parentPreference,
+                Optional<Symbol> leftHashSymbol,
+                Optional<Symbol> rightHashSymbol)
+        {
+            // retain only hash symbols preferred by parent nodes
+            Map<HashComputation, Symbol> hashSymbolsWithParentPreferences =
+                    allHashSymbols.entrySet()
+                            .stream()
+                            .filter(entry -> parentPreference.getHashes().contains(entry.getKey()))
+                            .collect(toImmutableMap(Entry::getKey, Entry::getValue));
+            Set<Symbol> preferredHashSymbols = ImmutableSet.copyOf(hashSymbolsWithParentPreferences.values());
+            Set<Symbol> leftOutputSymbols = ImmutableSet.copyOf(node.getLeftOutputSymbols());
+            Set<Symbol> rightOutputSymbols = ImmutableSet.copyOf(node.getRightOutputSymbols());
+
+            List<Symbol> newLeftOutputSymbols = left.getNode().getOutputSymbols().stream()
+                    .filter(symbol -> leftOutputSymbols.contains(symbol) || preferredHashSymbols.contains(symbol))
+                    .collect(toImmutableList());
+            List<Symbol> newRightOutputSymbols = rightUp.getNode().getOutputSymbols().stream()
+                    .filter(symbol -> rightOutputSymbols.contains(symbol) || preferredHashSymbols.contains(symbol))
+                    .collect(toImmutableList());
+
+            return new PlanWithProperties(
+                    new OffloadSortJoinNode(
+                            node.getId(),
+                            node.getType(),
+                            node.getAdaptiveExecutionType(),
+                            left.getNode(),
                             rightUp.getNode(),
                             rightDown.getNode(),
                             node.getCriteria(),

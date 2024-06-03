@@ -53,6 +53,7 @@ import io.trino.sql.planner.plan.IntersectNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OffsetNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
@@ -1041,6 +1042,14 @@ public class UnaliasSymbolReferences
 
         @Override
         public PlanAndMappings visitSortMergeAdaptiveJoin(SortMergeAdaptiveJoinNode node, UnaliasContext context)
+        {
+            //not implemented here
+            return new PlanAndMappings(
+                    node, new HashMap<>());
+        }
+
+        @Override
+        public PlanAndMappings visitOffloadSortJoin(OffloadSortJoinNode node, UnaliasContext context)
         {
             //not implemented here
             return new PlanAndMappings(

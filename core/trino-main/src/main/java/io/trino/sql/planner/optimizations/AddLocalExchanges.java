@@ -44,6 +44,7 @@ import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
 import io.trino.sql.planner.plan.PlanNode;
@@ -828,6 +829,39 @@ public class AddLocalExchanges
             PlanWithProperties rightUp = planAndEnforce(node.getRightUp(), rightPreference, rightPreference);
             PlanWithProperties rightDown = planAndEnforce(node.getRightDown(), rightPreference, rightPreference);
             return rebaseAndDeriveProperties(node, ImmutableList.of(leftUp, leftDown, rightUp, rightDown));
+        }
+
+        @Override
+        public PlanWithProperties visitOffloadSortJoin(OffloadSortJoinNode node, StreamPreferredProperties parentPreferences)
+        {
+            PlanWithProperties left;
+            List<Symbol> leftHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
+            StreamPreferredProperties leftPreference;
+            if (getTaskConcurrency(session) > 1) {
+                leftPreference = exactlyPartitionedOn(leftHashSymbols);
+            }
+            else {
+                leftPreference = singleStream();
+            }
+
+            left = planAndEnforce(
+                    node.getLeft(),
+                    leftPreference,
+                    leftPreference);
+
+
+            // this build consumes the input completely, so we do not pass through parent preferences
+            List<Symbol> rightHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
+            StreamPreferredProperties rightPreference;
+            if (getTaskConcurrency(session) > 1) {
+                rightPreference = exactlyPartitionedOn(rightHashSymbols);
+            }
+            else {
+                rightPreference = singleStream();
+            }
+            PlanWithProperties rightUp = planAndEnforce(node.getRightUp(), rightPreference, rightPreference);
+            PlanWithProperties rightDown = planAndEnforce(node.getRightDown(), rightPreference, rightPreference);
+            return rebaseAndDeriveProperties(node, ImmutableList.of(left, rightUp, rightDown));
         }
 
         @Override

@@ -487,7 +487,7 @@ public class PushJoinIntoTableScan
                         Assignments.identity(joinNode.getOutputSymbols())));
     }
 
-    private Optional<List<ComparisonExpression>> getFilterPredicates(Metadata metadata, Context context, TableScanNode tableScanNode, Symbol delimiterSymbol, double ratio)
+    public static Optional<List<ComparisonExpression>> getFilterPredicates(Metadata metadata, Context context, TableScanNode tableScanNode, Symbol delimiterSymbol, double ratio)
     {
         ColumnHandle columnHandle = tableScanNode.getAssignments().get(delimiterSymbol);
         List<Object> columnMinMax = metadata.getNthPercentile(context.getSession(), tableScanNode.getTable(), columnHandle);

@@ -42,6 +42,7 @@ import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
 import io.trino.sql.planner.plan.PlanNode;
@@ -247,6 +248,19 @@ public class DistributedExecutionPlanner
             return ImmutableMap.<PlanNodeId, SplitSource>builder()
                     .putAll(leftUpSplits)
                     .putAll(leftDownSplits)
+                    .putAll(rightUpSplits)
+                    .putAll(rightDownSplits)
+                    .build();
+        }
+
+        @Override
+        public Map<PlanNodeId, SplitSource> visitOffloadSortJoin(OffloadSortJoinNode node, Void context)
+        {
+            Map<PlanNodeId, SplitSource> leftSplits = node.getLeft().accept(this, context);
+            Map<PlanNodeId, SplitSource> rightUpSplits = node.getRightUp().accept(this, context);
+            Map<PlanNodeId, SplitSource> rightDownSplits = node.getRightDown().accept(this, context);
+            return ImmutableMap.<PlanNodeId, SplitSource>builder()
+                    .putAll(leftSplits)
                     .putAll(rightUpSplits)
                     .putAll(rightDownSplits)
                     .build();

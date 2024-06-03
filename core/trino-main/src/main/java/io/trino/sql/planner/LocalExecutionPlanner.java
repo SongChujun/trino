@@ -125,6 +125,7 @@ import io.trino.operator.join.LookupSourceFactory;
 import io.trino.operator.join.NestedLoopJoinBridge;
 import io.trino.operator.join.NestedLoopJoinPagesSupplier;
 import io.trino.operator.join.OffloadPagesMergeOperator;
+import io.trino.operator.join.OffloadSortJoinOperator;
 import io.trino.operator.join.PagesMergeOperator;
 import io.trino.operator.join.PartitionedLookupSourceFactory;
 import io.trino.operator.join.SortMergeJoinBridge;
@@ -194,6 +195,7 @@ import io.trino.sql.planner.plan.IndexSourceNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.plan.MarkDistinctNode;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode;
 import io.trino.sql.planner.plan.PatternRecognitionNode.Measure;
@@ -2421,6 +2423,40 @@ public class LocalExecutionPlanner
         }
 
         @Override
+        public PhysicalOperation visitOffloadSortJoin(OffloadSortJoinNode node, LocalExecutionPlanContext context)
+        {
+            // Register dynamic filters, allowing the scan operators to wait for the collection completion.
+            // Skip dynamic filters that are not used locally (e.g. in case of distributed joins).
+            Set<DynamicFilterId> localDynamicFilters = node.getDynamicFilters().keySet().stream()
+                    .filter(getConsumedDynamicFilterIds(node.getLeft())::contains)
+                    .collect(toImmutableSet());
+            context.getDynamicFiltersCollector().register(localDynamicFilters);
+
+            if (node.isCrossJoin()) {
+                throw new UnsupportedOperationException("cross join not supported");
+            }
+
+            List<JoinNode.EquiJoinClause> clauses = node.getCriteria();
+
+            List<Symbol> leftSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getLeft);
+            List<Symbol> rightSymbols = Lists.transform(clauses, JoinNode.EquiJoinClause::getRight);
+
+            switch (node.getType()) {
+                case INNER:
+                case LEFT:
+                case RIGHT:
+                case FULL:
+                    if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.STATIC) {
+                        return createOffloadSortJoin(node, leftSymbols, rightSymbols, context);
+                    }
+                    else if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.DYNAMIC) {
+                        throw new UnsupportedOperationException("Not yet implemented");
+                    }
+            }
+            throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
+        }
+
+        @Override
         public PhysicalOperation visitSpatialJoin(SpatialJoinNode node, LocalExecutionPlanContext context)
         {
             Expression filterExpression = node.getFilter();
@@ -3065,6 +3101,88 @@ public class LocalExecutionPlanner
                     new PhysicalOperation(leftDownSortOperator, outputMappings.build(), leftDownContext,
                             leftDownSource),
                     leftDownContext.getDriverInstanceCount());
+            context.addDriverFactory(
+                    rightUpContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightUpSortOperator, outputMappings.build(), rightUpContext,
+                            rightUpSource),
+                    rightUpContext.getDriverInstanceCount());
+
+            context.addDriverFactory(
+                    rightDownContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(rightDownSortOperator, outputMappings.build(), rightDownContext,
+                            rightDownSource),
+                    rightDownContext.getDriverInstanceCount());
+
+            return new PhysicalOperation(mergeOperator, outputMappings.build(), context, UNGROUPED_EXECUTION);
+        }
+
+        private PhysicalOperation createOffloadSortJoin(
+                OffloadSortJoinNode node,
+                List<Symbol> leftSymbols,
+                List<Symbol> rightSymbols,
+                LocalExecutionPlanContext context)
+        {
+            context.setDriverInstanceCount(getTaskConcurrency(session));
+            LocalExecutionPlanContext leftContext = context.createSubContext();
+            LocalExecutionPlanContext rightUpContext = context.createSubContext();
+            LocalExecutionPlanContext rightDownContext = context.createSubContext();
+
+            PhysicalOperation leftSource = node.getLeft().accept(this, leftContext);
+            PhysicalOperation rightUpSource = node.getRightUp().accept(this, rightUpContext);
+            PhysicalOperation rightDownSource = node.getRightDown().accept(this, rightDownContext);
+
+            List<Type> leftTypes = leftSource.getTypes();
+            List<Type> rightTypes = rightUpSource.getTypes();
+
+            List<Integer> leftOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getLeftOutputSymbols(), leftSource.getLayout()));
+            List<Integer> rightOutputChannels = ImmutableList.copyOf(getChannelsForSymbols(node.getRightOutputSymbols(), rightUpSource.getLayout()));
+
+            List<Integer> leftChannels = ImmutableList.copyOf(getChannelsForSymbols(leftSymbols, leftSource.getLayout()));
+            List<Integer> rightChannels = ImmutableList.copyOf(getChannelsForSymbols(rightSymbols, rightUpSource.getLayout()));
+
+            int expectedPositions = 10_000;
+
+            boolean eagerCompact = false; //hacky;
+
+            int pagesBatchSize = getPagesSortBatchSize(session);
+
+            ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
+
+            for (int i = 0; i < leftChannels.size(); i++) {
+                sortOrder.add(ASC_NULLS_LAST);
+            }
+
+            SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build(), pagesBatchSize);
+
+            int finishedCnt = 3;
+            SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;
+
+            OperatorFactory leftSortOperator = new SortOperator.SortOperatorFactory(leftContext.getNextOperatorId(), node.getId(), leftTypes,
+                    leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, finishedCnt, mode);
+
+            OperatorFactory rightUpSortOperator = new SortOperator.SortOperatorFactory(rightUpContext.getNextOperatorId(), node.getId(), rightTypes,
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_UP, finishedCnt, mode);
+            OperatorFactory rightDownSortOperator = new SortOperator.SortOperatorFactory(rightDownContext.getNextOperatorId(), node.getId(), rightTypes,
+                    rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_DOWN, finishedCnt, mode);
+
+            OperatorFactory mergeOperator = new OffloadSortJoinOperator.OffloadSortJoinOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
+                    leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge, mode);
+
+            ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
+            List<Symbol> outputSymbols = node.getOutputSymbols();
+            for (int i = 0; i < outputSymbols.size(); i++) {
+                Symbol symbol = outputSymbols.get(i);
+                outputMappings.put(symbol, i);
+            }
+            context.addDriverFactory(
+                    leftContext.isInputDriver(),
+                    false,
+                    new PhysicalOperation(leftSortOperator, outputMappings.build(), leftContext,
+                            leftSource),
+                    leftContext.getDriverInstanceCount());
+
             context.addDriverFactory(
                     rightUpContext.isInputDriver(),
                     false,
