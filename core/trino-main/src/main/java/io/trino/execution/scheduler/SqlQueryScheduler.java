@@ -50,6 +50,7 @@ import io.trino.sql.planner.NodePartitionMap;
 import io.trino.sql.planner.NodePartitioningManager;
 import io.trino.sql.planner.PartitioningHandle;
 import io.trino.sql.planner.StageExecutionPlan;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
@@ -304,6 +305,20 @@ public class SqlQueryScheduler
         return Optional.empty();
     }
 
+    private Optional<OffloadSortJoinNode> getOffloadSortJoinNodeFromStage(PlanNode root)
+    {
+        if (root instanceof OffloadSortJoinNode) {
+            return Optional.of((OffloadSortJoinNode) root);
+        }
+        for (PlanNode source : root.getSources()) {
+            Optional<OffloadSortJoinNode> subRes = getOffloadSortJoinNodeFromStage(source);
+            if (subRes.isPresent()) {
+                return subRes;
+            }
+        }
+        return Optional.empty();
+    }
+
     private List<SqlStageExecution> createStages(
             Optional<SqlStageExecution> parentStage,
             ExchangeLocationsConsumer parent,
@@ -339,10 +354,10 @@ public class SqlQueryScheduler
                 schedulerStats);
         if (parentStage.isPresent()) {
             Optional<SortMergeAdaptiveJoinNode> sortMergeAdaptiveJoinNode = getSortMergeAdaptiveJoinNodeFromStage(parentStage.get().getFragment().getRoot());
-            if (sortMergeAdaptiveJoinNode.isPresent()) {
-                stage.setEnableDynamicJoinPushDown(true);
-                setStagePlacement(stage, sortMergeAdaptiveJoinNode.get(), stage.getFragment().getId());
-            }
+            sortMergeAdaptiveJoinNode.ifPresent(mergeAdaptiveJoinNode -> setStagePlacement(stage, mergeAdaptiveJoinNode, stage.getFragment().getId()));
+
+            Optional<OffloadSortJoinNode> offloadSortJoinNode = getOffloadSortJoinNodeFromStage(parentStage.get().getFragment().getRoot());
+            offloadSortJoinNode.ifPresent(sortJoinNode -> setStagePlacement(stage, sortJoinNode, stage.getFragment().getId()));
         }
         stages.add(stage);
 
@@ -504,6 +519,7 @@ public class SqlQueryScheduler
 
     private void setStagePlacement(SqlStageExecution stage, SortMergeAdaptiveJoinNode parent, PlanFragmentId me)
     {
+        stage.setEnableDynamicJoinPushDown(true);
         Function<PlanNode, Boolean> testSubFragmentTheSame = node -> {
             PlanFragmentId subFragmentId = Iterables.getOnlyElement(((RemoteSourceNode) Iterables.getOnlyElement(node.getSources())).getSourceFragmentIds());
             return subFragmentId.equals(me);
@@ -517,6 +533,23 @@ public class SqlQueryScheduler
         }
         else {
             stage.setStagePlacement(SqlStageExecution.StagePlacement.NONE);
+        }
+    }
+
+    private void setStagePlacement(SqlStageExecution stage, OffloadSortJoinNode parent, PlanFragmentId me)
+    {
+        Function<PlanNode, Boolean> testSubFragmentTheSame = node -> {
+            PlanFragmentId subFragmentId = Iterables.getOnlyElement(((RemoteSourceNode) Iterables.getOnlyElement(node.getSources())).getSourceFragmentIds());
+            return subFragmentId.equals(me);
+        };
+
+        if (testSubFragmentTheSame.apply(parent.getRightUp())) {
+            stage.setEnableDynamicJoinPushDown(true);
+            stage.setStagePlacement(SqlStageExecution.StagePlacement.UP);
+        }
+        else if (testSubFragmentTheSame.apply(parent.getRightDown())) {
+            stage.setEnableDynamicJoinPushDown(true);
+            stage.setStagePlacement(SqlStageExecution.StagePlacement.DOWN);
         }
     }
 

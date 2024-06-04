@@ -26,6 +26,7 @@ import io.trino.server.remotetask.HttpRemoteTask;
 import io.trino.spi.Page;
 import io.trino.split.EmptySplit;
 import io.trino.sql.analyzer.FeaturesConfig;
+import io.trino.sql.planner.plan.OffloadSortJoinNode;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.SortMergeAdaptiveJoinNode;
 
@@ -78,6 +79,11 @@ public class DynamicJoinPushdownService
             }
         }
 
+        private boolean checkContainDynamicNode(PlanNode root)
+        {
+            return checkContainSortMergeAdaptiveJoinNode(root) || checkContainOffloadSortAdaptiveJoinNode(root);
+        }
+
         private boolean checkContainSortMergeAdaptiveJoinNode(PlanNode root)
         {
             if (root instanceof SortMergeAdaptiveJoinNode) {
@@ -92,12 +98,26 @@ public class DynamicJoinPushdownService
             return false;
         }
 
+        private boolean checkContainOffloadSortAdaptiveJoinNode(PlanNode root)
+        {
+            if (root instanceof OffloadSortJoinNode) {
+                return true;
+            }
+            for (PlanNode source : root.getSources()) {
+                boolean subRes = checkContainOffloadSortAdaptiveJoinNode(source);
+                if (subRes) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public List<String> acknowledge(NodeTaskMap nodeTaskMap)
         {
             List<String> currentRoundFinishedSplits = new ArrayList<>();
             nodeSplitMap.forEach((node, splits) -> {
                 Set<RemoteTask> remoteTasks = nodeTaskMap.getNodeTasks(node).getRemoteTasks();
-                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && checkContainSortMergeAdaptiveJoinNode(((HttpRemoteTask) task).getPlanFragment().getRoot()))
+                List<Page.SplitIdentifier> finishedSplits = remoteTasks.stream().filter(task -> (task instanceof HttpRemoteTask) && checkContainDynamicNode(((HttpRemoteTask) task).getPlanFragment().getRoot()))
                         .map(task -> task.getTaskStatus().getSplitFinishedPagesInfo().keySet()).flatMap(Collection::stream).collect(Collectors.toList());
                 List<String> finishedSplitIds = finishedSplits.stream().map(s -> s.getTableName() + "_" + s.getId()).collect(Collectors.toList());
                 finishedSplitsCnt += finishedSplitIds.size();

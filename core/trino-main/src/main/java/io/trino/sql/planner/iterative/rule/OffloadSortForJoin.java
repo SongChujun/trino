@@ -182,6 +182,7 @@ public class OffloadSortForJoin
             OrderingScheme rightOrderingScheme = new OrderingScheme(rightSymbols, rightOrderingBuilder.build());
 
             PlanNode rightDown = new SortNode(context.getIdAllocator().getNextId(), right, rightOrderingScheme, false);
+            splitManager.registerColocateTableHandle(rightScan.getTable(), rightScan.getTable());
             if (elasticJoinType.equals(FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS)) {
                 splitManager.setPushDownRatio(getElasticJoinLeftPushdownRatio(context.getSession()));
                 splitManager.setSplitAssignmentPolicy(SplitManager.SplitAssignmentPolicy.STATIC);

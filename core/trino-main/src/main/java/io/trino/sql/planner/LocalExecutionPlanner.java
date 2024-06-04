@@ -2447,10 +2447,10 @@ public class LocalExecutionPlanner
                 case RIGHT:
                 case FULL:
                     if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.STATIC) {
-                        return createOffloadSortJoin(node, leftSymbols, rightSymbols, context);
+                        return createOffloadSortJoin(node, leftSymbols, rightSymbols, context, SortOperator.SortOperatorFactory.Mode.STATIC);
                     }
                     else if (node.getAdaptiveExecutionType() == SortMergeAdaptiveJoinNode.AdaptiveExecutionType.DYNAMIC) {
-                        throw new UnsupportedOperationException("Not yet implemented");
+                        return createOffloadSortJoin(node, leftSymbols, rightSymbols, context, SortOperator.SortOperatorFactory.Mode.DYNAMIC);
                     }
             }
             throw new UnsupportedOperationException("Unsupported join type: " + node.getType());
@@ -3122,7 +3122,8 @@ public class LocalExecutionPlanner
                 OffloadSortJoinNode node,
                 List<Symbol> leftSymbols,
                 List<Symbol> rightSymbols,
-                LocalExecutionPlanContext context)
+                LocalExecutionPlanContext context,
+                SortOperator.SortOperatorFactory.Mode mode)
         {
             context.setDriverInstanceCount(getTaskConcurrency(session));
             LocalExecutionPlanContext leftContext = context.createSubContext();
@@ -3157,7 +3158,6 @@ public class LocalExecutionPlanner
             SortMergeJoinBridge bridge = new SortMergeJoinBridge(getTaskConcurrency(session), leftTypes, rightTypes, pagesIndexFactory, expectedPositions, leftChannels, rightChannels, sortOrder.build(), pagesBatchSize);
 
             int finishedCnt = 3;
-            SortOperator.SortOperatorFactory.Mode mode = SortOperator.SortOperatorFactory.Mode.STATIC;
 
             OperatorFactory leftSortOperator = new SortOperator.SortOperatorFactory(leftContext.getNextOperatorId(), node.getId(), leftTypes,
                     leftChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.LEFT_UP, finishedCnt, mode);
