@@ -837,12 +837,13 @@ public class AddLocalExchanges
             PlanWithProperties left;
             List<Symbol> leftHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getLeft);
             StreamPreferredProperties leftPreference;
-            if (getTaskConcurrency(session) > 1) {
-                leftPreference = exactlyPartitionedOn(leftHashSymbols);
-            }
-            else {
-                leftPreference = singleStream();
-            }
+            leftPreference = exactlyPartitionedOn(leftHashSymbols);
+//            if (getTaskConcurrency(session) > 1) {
+//                leftPreference = exactlyPartitionedOn(leftHashSymbols);
+//            }
+//            else {
+//                leftPreference = singleStream();
+//            }
 
             left = planAndEnforce(
                     node.getLeft(),
@@ -853,12 +854,14 @@ public class AddLocalExchanges
             // this build consumes the input completely, so we do not pass through parent preferences
             List<Symbol> rightHashSymbols = Lists.transform(node.getCriteria(), JoinNode.EquiJoinClause::getRight);
             StreamPreferredProperties rightPreference;
-            if (getTaskConcurrency(session) > 1) {
-                rightPreference = exactlyPartitionedOn(rightHashSymbols);
-            }
-            else {
-                rightPreference = singleStream();
-            }
+            rightPreference = exactlyPartitionedOn(rightHashSymbols);
+//
+//            if (getTaskConcurrency(session) > 1) {
+//                rightPreference = exactlyPartitionedOn(rightHashSymbols);
+//            }
+//            else {
+//                rightPreference = singleStream();
+//            }
             PlanWithProperties rightUp = planAndEnforce(node.getRightUp(), rightPreference, rightPreference);
             PlanWithProperties rightDown = planAndEnforce(node.getRightDown(), rightPreference, rightPreference);
             return rebaseAndDeriveProperties(node, ImmutableList.of(left, rightUp, rightDown));

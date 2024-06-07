@@ -289,8 +289,10 @@ public class PartitionedOutputOperator
         if (page.getPositionCount() == 0) {
             return;
         }
+        boolean pageIdPresent = page.getSplitIdentifier().isPresent();
 
         page = pagePreprocessor.apply(page);
+        assert pageIdPresent == page.getSplitIdentifier().isPresent();
         if (page.isSplitFinishedPage()) {
             log.debug("last page for PartitionedOutputOperator for split %s", page.getSplitIdentifier());
         }
@@ -493,7 +495,7 @@ public class PartitionedOutputOperator
                     PageBuilder partitionPageBuilder = pageBuilders[partition];
                     if (!partitionPageBuilder.isEmpty() && (force || partitionPageBuilder.isFull())) {
                         Page pagePartition = partitionPageBuilder.build();
-                        pagePartition.setSplitIdentifier(splitIdentifier.isPresent() ? splitIdentifier : Optional.empty());
+                        pagePartition.setSplitIdentifier(splitIdentifier);
                         partitionPageBuilder.reset();
 
                         operatorContext.recordOutput(pagePartition.getSizeInBytes(), pagePartition.getPositionCount());

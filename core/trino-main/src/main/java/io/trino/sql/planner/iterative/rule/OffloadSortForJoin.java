@@ -40,14 +40,13 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Verify.verify;
-import static io.trino.SystemSessionProperties.getElasticJoinLeftPushdownRatio;
+import static io.trino.SystemSessionProperties.getElasticJoinRightPushdownRatio;
 import static io.trino.SystemSessionProperties.getElasticJoinType;
 import static io.trino.SystemSessionProperties.isAllowOffloadSortForJoinIntoConnectors;
 import static io.trino.matching.Capture.newCapture;
 import static io.trino.sql.planner.iterative.rule.PushJoinIntoTableScan.getFilterPredicates;
 import static io.trino.sql.planner.plan.Patterns.Join.left;
 import static io.trino.sql.planner.plan.Patterns.Join.right;
-import static io.trino.sql.planner.plan.Patterns.tableScan;
 import static java.util.Objects.requireNonNull;
 
 public class OffloadSortForJoin
@@ -101,15 +100,18 @@ public class OffloadSortForJoin
         PlanNode left = captures.get(LEFT);
         PlanNode right = captures.get(RIGHT);
 
-        if (left instanceof TableScanNode && right instanceof TableScanNode) {
-            return Result.empty();
-        }
+//        if (left instanceof TableScanNode && right instanceof TableScanNode) {
+//            return Result.empty();
+//        }
         if (!(left instanceof TableScanNode || right instanceof TableScanNode)) {
             return Result.empty();
         }
 
         if (left instanceof TableScanNode) {
             joinNode = joinNode.flipChildren();
+            PlanNode temp = left;
+            left = right;
+            right = temp;
         }
 
         TableScanNode rightScan = (TableScanNode) right;
@@ -140,7 +142,7 @@ public class OffloadSortForJoin
 
             OrderingScheme rightOrderingScheme = new OrderingScheme(rightSymbols, rightOrderingBuilder.build());
 
-            Optional<List<ComparisonExpression>> rightFilterPredicates = getFilterPredicates(metadata, context, rightDownTableScanNode, rightSymbols.get(0), 1 - getElasticJoinLeftPushdownRatio(context.getSession()));
+            Optional<List<ComparisonExpression>> rightFilterPredicates = getFilterPredicates(metadata, context, rightDownTableScanNode, rightSymbols.get(0), 1 - getElasticJoinRightPushdownRatio(context.getSession()));
 
             if (rightFilterPredicates.isEmpty()) {
                 return Result.empty();
@@ -184,7 +186,7 @@ public class OffloadSortForJoin
             PlanNode rightDown = new SortNode(context.getIdAllocator().getNextId(), right, rightOrderingScheme, false);
             splitManager.registerColocateTableHandle(rightScan.getTable(), rightScan.getTable());
             if (elasticJoinType.equals(FeaturesConfig.ElasticJoinType.STATIC_MULTIPLE_SPLITS)) {
-                splitManager.setPushDownRatio(getElasticJoinLeftPushdownRatio(context.getSession()));
+                splitManager.setPushDownRatio(getElasticJoinRightPushdownRatio(context.getSession()));
                 splitManager.setSplitAssignmentPolicy(SplitManager.SplitAssignmentPolicy.STATIC);
             }
             else {

@@ -23,7 +23,7 @@ public class PostgreSqlConfig
     private ArrayMapping arrayMapping = ArrayMapping.DISABLED;
     private boolean includeSystemTables;
 
-    private boolean enableStringPushdownWithCollate;
+    private boolean enableStringPushdownWithCollate = true;
 
     public enum ArrayMapping
     {

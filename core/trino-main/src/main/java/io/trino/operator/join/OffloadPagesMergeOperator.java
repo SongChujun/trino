@@ -206,17 +206,17 @@ public class OffloadPagesMergeOperator
     {
         if ((leftDownSortedPagesIndex.getPositionCount() > 0) || (rightDownSortedPagesIndex.getPositionCount() > 0) || ((mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) && !resultMerged)) {
             log.debug("start adding merge to task queue");
-            List<Callable<Integer>> mergeTasks = new ArrayList<>();
-            mergeTasks.add(new MergeTask(leftUpSortedPagesIndex, leftDownSortedPagesIndex, mode));
-            mergeTasks.add(new MergeTask(rightUpSortedPagesIndex, rightDownSortedPagesIndex, mode));
-            try {
-                executor.invokeAll(mergeTasks);
+            if (leftDownSortedPagesIndex.getPositionCount()>0)
+            {
+                leftUpSortedPagesIndex.mergePagesIndex(leftDownSortedPagesIndex, mode);
+                leftDownSortedPagesIndex.clear();
             }
-            catch (InterruptedException e) {
-                throw new RuntimeException(e);
+            if (rightDownSortedPagesIndex.getPositionCount()>0)
+            {
+                rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex, mode);
+                rightDownSortedPagesIndex.clear();
             }
-            leftDownSortedPagesIndex.clear();
-            rightDownSortedPagesIndex.clear();
+
             resultMerged = true;
         }
         return pagesMergeOperator.getOutput();

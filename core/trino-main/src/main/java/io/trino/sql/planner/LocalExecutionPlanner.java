@@ -3167,7 +3167,7 @@ public class LocalExecutionPlanner
             OperatorFactory rightDownSortOperator = new SortOperator.SortOperatorFactory(rightDownContext.getNextOperatorId(), node.getId(), rightTypes,
                     rightChannels, sortOrder.build(), false, Optional.of(spillerFactory), orderingCompiler, bridge, SortOperator.SortOperatorFactory.Placement.RIGHT_DOWN, finishedCnt, mode);
 
-            OperatorFactory mergeOperator = new OffloadSortJoinOperator.OffloadSortJoinOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
+            OperatorFactory mergeOperator = new OffloadPagesMergeOperator.OffloadPagesMergeOperatorFactory(context.getNextOperatorId(), node.getId(), leftTypes, rightTypes,
                     leftChannels, rightChannels, leftOutputChannels, rightOutputChannels, leftChannels.stream().map(leftTypes::get).map(blockTypeOperators::getComparisonOperator).collect(toImmutableList()), bridge, mode);
 
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
@@ -4104,6 +4104,11 @@ public class LocalExecutionPlanner
                 List<Symbol> expectedLayout = node.getInputs().get(i);
                 Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(expectedLayout, source.getLayout());
 
+                OptionalInt sinkNum = OptionalInt.of(1);
+                if (!checkExchangeSourceContainRemoteSource(node)) {
+                    sinkNum = context.getDriverInstanceCount();
+                }
+
                 context.addDriverFactory(
                         subContext.isInputDriver(),
                         false,
@@ -4115,7 +4120,7 @@ public class LocalExecutionPlanner
                                         localExchangeFactory.newSinkFactoryId(),
                                         pagePreprocessor),
                                 source),
-                        OptionalInt.of(1));
+                        sinkNum);
             }
 
             // the main driver is not an input... the exchange sources are the input for the plan
@@ -4126,6 +4131,21 @@ public class LocalExecutionPlanner
                     "driver instance count must match the number of exchange partitions");
 
             return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchangeFactory), makeLayout(node), context, exchangeSourcePipelineExecutionStrategy);
+        }
+
+        private boolean checkExchangeSourceContainRemoteSource(PlanNode node)
+        {
+            if (node instanceof RemoteSourceNode)
+            {
+                return true;
+            }
+            if (node.getSources().size()>1) {
+                return false;
+            }
+            if (node.getSources().size()==0) {
+                return false;
+            }
+            return checkExchangeSourceContainRemoteSource(node.getSources().get(0));
         }
 
         @Override

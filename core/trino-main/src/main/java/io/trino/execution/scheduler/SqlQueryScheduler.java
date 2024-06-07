@@ -539,7 +539,11 @@ public class SqlQueryScheduler
     private void setStagePlacement(SqlStageExecution stage, OffloadSortJoinNode parent, PlanFragmentId me)
     {
         Function<PlanNode, Boolean> testSubFragmentTheSame = node -> {
-            PlanFragmentId subFragmentId = Iterables.getOnlyElement(((RemoteSourceNode) Iterables.getOnlyElement(node.getSources())).getSourceFragmentIds());
+            Optional<RemoteSourceNode> remoteSourceNode = getRemoteSourceNode(node);
+            if (remoteSourceNode.isEmpty()) {
+                return  false;
+            }
+            PlanFragmentId subFragmentId = Iterables.getOnlyElement(remoteSourceNode.get().getSourceFragmentIds());
             return subFragmentId.equals(me);
         };
 
@@ -551,6 +555,18 @@ public class SqlQueryScheduler
             stage.setEnableDynamicJoinPushDown(true);
             stage.setStagePlacement(SqlStageExecution.StagePlacement.DOWN);
         }
+    }
+
+    private Optional<RemoteSourceNode> getRemoteSourceNode(PlanNode node)
+    {
+        if (node instanceof RemoteSourceNode) {
+            return Optional.of((RemoteSourceNode) node);
+        }
+        if (node.getSources().size()==0) {
+            return Optional.empty();
+        }
+        assert node.getSources().size()==1;
+        return getRemoteSourceNode(node.getSources().get(0));
     }
 
     public BasicStageStats getBasicStageStats()

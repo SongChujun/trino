@@ -157,6 +157,8 @@ public class PageProcessor
         private int outputPagePositions = -1;
         private long outputPageSizeInBytes;
 
+        private Optional<Page.SplitIdentifier> splitIdentifier;
+
         private ProjectSelectedPositions(
                 ConnectorSession session,
                 DriverYieldSignal yieldSignal,
@@ -170,6 +172,7 @@ public class PageProcessor
             this.session = session;
             this.yieldSignal = yieldSignal;
             this.page = page;
+            this.splitIdentifier = page.getSplitIdentifier();
             this.memoryContext = memoryContext;
             this.avoidPageMaterialization = avoidPageMaterialization;
             this.selectedPositions = selectedPositions;
@@ -257,7 +260,7 @@ public class PageProcessor
                     }
                     memoryContext.setBytes(0);
                 }
-
+                resultPage.setSplitIdentifier(splitIdentifier);
                 return ofResult(resultPage);
             }
         }

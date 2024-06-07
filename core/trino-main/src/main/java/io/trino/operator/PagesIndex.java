@@ -111,7 +111,7 @@ public class PagesIndex
     private int pagesBatchIter;
     private final Map<String, List<Integer>> pagesBySplit = new HashMap<>();
 
-    private final Map<String, Map<String, Page>> seqNumToPageBySplit = new HashMap<>();
+    private final Map<String, Map<String, List<Page>>> seqNumToPageBySplit = new HashMap<>();
 
     private PagesIndex(
             OrderingCompiler orderingCompiler,
@@ -272,8 +272,13 @@ public class PagesIndex
         if (!seqNumToPageBySplit.containsKey(pageId)) {
             seqNumToPageBySplit.put(pageId, new HashMap<>());
         }
-        Map<String, Page> seqNumToPage = seqNumToPageBySplit.get(pageId);
-        seqNumToPage.put(pageSeqNum, page);
+        Map<String, List<Page>> seqNumToPage = seqNumToPageBySplit.get(pageId);
+        if (!seqNumToPage.containsKey(pageSeqNum))
+        {
+            seqNumToPage.put(pageSeqNum, new ArrayList<>());
+        }
+        seqNumToPage.get(pageSeqNum).add(page);
+
     }
 
     public void addPage(Page page)
@@ -332,12 +337,14 @@ public class PagesIndex
             }
             throw new IllegalStateException();
         };
-        for (Map<String, Page> seqNumToPage : seqNumToPageBySplit.values()) {
+        for (Map<String, List<Page>> seqNumToPage : seqNumToPageBySplit.values()) {
             Set<String> keys = seqNumToPage.keySet();
             List<String> sortedKeys = new ArrayList<>(keys);
             sortedKeys.sort(seqNumkeyComparator);
             for (String sortedKey : sortedKeys) {
-                addPage(seqNumToPage.get(sortedKey));
+                for (Page page: seqNumToPage.get(sortedKey)) {
+                    addPage(page);
+                }
             }
         }
     }

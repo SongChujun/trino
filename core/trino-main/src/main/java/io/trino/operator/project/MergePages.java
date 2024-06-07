@@ -24,6 +24,7 @@ import io.trino.spi.block.Block;
 import io.trino.spi.type.Type;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.operator.WorkProcessor.TransformationState.finished;
@@ -94,6 +95,8 @@ public final class MergePages
 
         private Page queuedPage;
 
+        private Optional<Page.SplitIdentifier> splitIdentifier;
+
         private MergePagesTransformation(Iterable<? extends Type> types, long minPageSizeInBytes, int minRowCount, int maxPageSizeInBytes, LocalMemoryContext memoryContext)
         {
             this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
@@ -111,7 +114,13 @@ public final class MergePages
         @Override
         public TransformationState<Page> process(Page inputPage)
         {
+            if (inputPage!=null)
+            {
+                splitIdentifier = inputPage.getSplitIdentifier();
+            }
             if (queuedPage != null) {
+                assert inputPage!=null;
+                assert inputPage.equals(queuedPage);
                 Page output = queuedPage;
                 queuedPage = null;
                 memoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());
@@ -124,8 +133,9 @@ public final class MergePages
                     memoryContext.close();
                     return finished();
                 }
-
-                return ofResult(flush(), false);
+                Page flushedResult = flush();
+                flushedResult.setSplitIdentifier(splitIdentifier);
+                return ofResult(flushedResult, false);
             }
 
             // TODO: merge low cardinality blocks lazily
@@ -135,6 +145,7 @@ public final class MergePages
                 }
 
                 Page output = pageBuilder.build();
+                output.setSplitIdentifier(splitIdentifier);
                 pageBuilder.reset();
                 // inputPage is preserved until next process(...) call
                 queuedPage = inputPage;
@@ -145,7 +156,9 @@ public final class MergePages
             appendPage(inputPage);
 
             if (pageBuilder.isFull()) {
-                return ofResult(flush());
+                Page flushed = flush();
+                flushed.setSplitIdentifier(splitIdentifier);
+                return ofResult(flushed);
             }
 
             memoryContext.setBytes(pageBuilder.getRetainedSizeInBytes());

@@ -89,7 +89,7 @@ public class OffloadSortJoinOperator
         public Operator createOperator(DriverContext driverContext)
         {
             checkState(!closed, "Factory is already closed");
-            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OffloadPagesMergeOperator.class.getSimpleName());
+            OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, OffloadSortJoinOperator.class.getSimpleName());
             ImmutableList.Builder<SortOrder> sortOrder = ImmutableList.builder();
 
             for (int i = 0; i < leftMergeChannels.size(); i++) {
@@ -131,6 +131,9 @@ public class OffloadSortJoinOperator
     private final PagesIndex rightDownSortedPagesIndex;
     private final PagesMergeOperator pagesMergeOperator;
     private final SortOperator.SortOperatorFactory.Mode mode;
+
+    private final PagesIndex leftSortedPagesIndex;
+
     private boolean resultMerged;
 
     private final ExecutorService executor;
@@ -150,6 +153,7 @@ public class OffloadSortJoinOperator
             SortMergePageBuilder pageBuilder,
             SortOperator.SortOperatorFactory.Mode mode)
     {
+        this.leftSortedPagesIndex = leftSortedPagesIndex;
         this.rightUpSortedPagesIndex = rightUpSortedPagesIndex;
         this.rightDownSortedPagesIndex = rightDownSortedPagesIndex;
         pagesMergeOperator = new PagesMergeOperator(operatorContext, leftMergeChannels, rightMergeChannels, leftSortedPagesIndex, rightUpSortedPagesIndex,
@@ -200,14 +204,8 @@ public class OffloadSortJoinOperator
     {
         if ((rightDownSortedPagesIndex.getPositionCount() > 0) || ((mode == SortOperator.SortOperatorFactory.Mode.DYNAMIC) && !resultMerged)) {
             log.debug("start adding merge to task queue");
-            List<Callable<Integer>> mergeTasks = new ArrayList<>();
-            mergeTasks.add(new MergeTask(rightUpSortedPagesIndex, rightDownSortedPagesIndex, mode));
-            try {
-                executor.invokeAll(mergeTasks);
-            }
-            catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+            rightUpSortedPagesIndex.mergePagesIndex(rightDownSortedPagesIndex, mode);
+
             rightDownSortedPagesIndex.clear();
             resultMerged = true;
         }
