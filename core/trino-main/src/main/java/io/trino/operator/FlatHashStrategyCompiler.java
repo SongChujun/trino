@@ -80,6 +80,7 @@ import static io.trino.cache.SafeCaches.buildNonEvictableCache;
 import static io.trino.operator.HashGenerator.INITIAL_HASH_VALUE;
 import static io.trino.spi.function.InvocationConvention.InvocationArgumentConvention.BLOCK_POSITION_NOT_NULL;
 import static io.trino.spi.function.InvocationConvention.InvocationArgumentConvention.FLAT;
+import static io.trino.spi.function.InvocationConvention.InvocationArgumentConvention.NEVER_NULL;
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.BLOCK_BUILDER;
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.FAIL_ON_NULL;
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.FLAT_RETURN;
@@ -132,11 +133,22 @@ public final class FlatHashStrategyCompiler
                     type,
                     fixedOffset,
                     fixedOffset + 1,
+                    // readFlatMethod: FLAT -> BlockBuilder
                     typeOperators.getReadValueOperator(type, simpleConvention(BLOCK_BUILDER, FLAT)),
+                    // readFlatToStackMethod: FLAT -> stack value
+                    typeOperators.getReadValueOperator(type, simpleConvention(FAIL_ON_NULL, FLAT)),
+                    // writeFlatMethod: BlockPosition -> FLAT_RETURN
                     typeOperators.getReadValueOperator(type, simpleConvention(FLAT_RETURN, BLOCK_POSITION_NOT_NULL)),
+                    // identicalFlatBlockMethod: FLAT vs BLOCK_POSITION
                     typeOperators.getIdenticalOperator(type, simpleConvention(FAIL_ON_NULL, FLAT, BLOCK_POSITION_NOT_NULL)),
+                    // hashFlatMethod: FLAT
                     typeOperators.getHashCodeOperator(type, simpleConvention(FAIL_ON_NULL, FLAT)),
-                    typeOperators.getHashCodeOperator(type, simpleConvention(FAIL_ON_NULL, BLOCK_POSITION_NOT_NULL))));
+                    // hashBlockMethod: BLOCK_POSITION
+                    typeOperators.getHashCodeOperator(type, simpleConvention(FAIL_ON_NULL, BLOCK_POSITION_NOT_NULL)),
+                    // comparisonStackStackMethod: stack vs stack (unordered last)
+                    typeOperators.getComparisonUnorderedLastOperator(type, simpleConvention(FAIL_ON_NULL, NEVER_NULL, NEVER_NULL)),
+                    // comparisonFlatFlatMethod: FLAT vs FLAT (unordered last)
+                    typeOperators.getComparisonUnorderedLastOperator(type, simpleConvention(FAIL_ON_NULL, FLAT, FLAT))));
             fixedOffset += 1 + type.getFlatFixedSize();
         }
 
@@ -174,6 +186,11 @@ public final class FlatHashStrategyCompiler
         definition.declareMethod(a(PUBLIC), "getTotalFlatFixedLength", type(int.class)).getBody()
                 .append(constantInt(fixedOffset).ret());
 
+        // expose types for default compare implementation
+        MethodDefinition getTypes = definition.declareMethod(a(PUBLIC), "getTypes", type(List.class, Type.class));
+        getTypes.getBody()
+                .append(getTypes.getThis().getField(typesField).ret());
+
         generateGetTotalVariableWidth(definition, chunkClasses);
 
         generateReadFlat(definition, chunkClasses);
@@ -182,6 +199,11 @@ public final class FlatHashStrategyCompiler
         generateHashBlock(definition, chunkClasses);
         generateHashFlat(definition, chunkClasses, singleChunkClass);
         generateHashBlocksBatched(definition, chunkClasses);
+
+        // Generate compiled compareKeys for single-chunk cases
+        if (singleChunkClass) {
+            generateCompareFlatSingleChunk(definition, keyFields, callSiteBinder);
+        }
 
         try {
             DynamicClassLoader classLoader = new DynamicClassLoader(FlatHashStrategyCompiler.class.getClassLoader(), callSiteBinder.getBindings());
@@ -230,6 +252,150 @@ public final class FlatHashStrategyCompiler
                 hashBlockChunk,
                 hashFlatChunk,
                 hashBlocksBatchedChunk);
+    }
+
+    private static void generateCompareFlatSingleChunk(ClassDefinition definition, List<KeyField> keyFields, CallSiteBinder callSiteBinder)
+    {
+        Parameter leftFixed = arg("leftFixed", type(byte[].class));
+        Parameter leftFixedOffset = arg("leftFixedOffset", type(int.class));
+        Parameter leftVariable = arg("leftVariable", type(byte[].class));
+        Parameter leftVariableOffset = arg("leftVariableOffset", type(int.class));
+        Parameter rightFixed = arg("rightFixed", type(byte[].class));
+        Parameter rightFixedOffset = arg("rightFixedOffset", type(int.class));
+        Parameter rightVariable = arg("rightVariable", type(byte[].class));
+        Parameter rightVariableOffset = arg("rightVariableOffset", type(int.class));
+
+        MethodDefinition method = definition.declareMethod(
+                a(PUBLIC),
+                "compareKeysWithNulls",
+                type(int.class),
+                leftFixed,
+                leftFixedOffset,
+                leftVariable,
+                leftVariableOffset,
+                rightFixed,
+                rightFixedOffset,
+                rightVariable,
+                rightVariableOffset);
+
+        BytecodeBlock body = method.getBody();
+        Scope scope = method.getScope();
+        Variable fixedOff = scope.declareVariable("fixedOff", body, constantInt(0));
+        Variable lVarOff = scope.declareVariable("lVarOff", body, leftVariableOffset);
+        Variable rVarOff = scope.declareVariable("rVarOff", body, rightVariableOffset);
+        Variable result = scope.declareVariable("result", body, constantInt(0));
+        Variable cmp = scope.declareVariable("cmp", body, constantLong(0));
+
+        /*
+         * Compiled method shape (pseudocode):
+         *
+         *   // Public method emitted on the single-chunk FlatHashStrategy class
+         *   int compareKeysWithNulls(
+         *       byte[] leftFixed, int leftFixedOffset, byte[] leftVariable, int leftVariableOffset,
+         *       byte[] rightFixed, int rightFixedOffset, byte[] rightVariable, int rightVariableOffset)
+         *   {
+         *       int fixedOff = 0;           // running offset into the fixed area of both rows
+         *       int lVarOff = leftVariableOffset;   // running offset into left variable area
+         *       int rVarOff = rightVariableOffset;  // running offset into right variable area
+         *
+         *       // For each key field i in order (NULLS FIRST, ascending)
+         *       for each keyField:
+         *           int leftBase  = leftFixedOffset  + fixedOff;
+         *           int rightBase = rightFixedOffset + fixedOff;
+         *
+         *           boolean leftNull  = leftFixed[leftBase]  != 0;
+         *           boolean rightNull = rightFixed[rightBase] != 0;
+         *
+         *           if (leftNull || rightNull) {
+         *               if (leftNull && rightNull) {
+         *                   // advance offsets and continue
+         *                   if (keyField.type.isFlatVariableWidth()) {
+         *                       lVarOff += type.getFlatVariableWidthLength(leftFixed,  leftBase  + 1);
+         *                       rVarOff += type.getFlatVariableWidthLength(rightFixed, rightBase + 1);
+         *                   }
+         *                   fixedOff += 1 + type.getFlatFixedSize();
+         *                   continue;
+         *               }
+         *               // only one side is null -> NULLS FIRST ordering
+         *               return leftNull ? -1 : 1;
+         *           }
+         *
+         *           // Neither side null: compare directly on FLAT encodings
+         *           // COMPARE_FLAT_FLAT takes (fixed, dataOffset, variable, varOffset) for both sides
+         *           int c = (int) COMPARE_FLAT_FLAT(
+         *               leftFixed,  leftBase  + 1, leftVariable,  lVarOff,
+         *               rightFixed, rightBase + 1, rightVariable, rVarOff);
+         *           if (c != 0) {
+         *               return c; // ascending
+         *           }
+         *
+         *           // Advance offsets for next field
+         *           if (keyField.type.isFlatVariableWidth()) {
+         *               lVarOff += type.getFlatVariableWidthLength(leftFixed,  leftBase  + 1);
+         *               rVarOff += type.getFlatVariableWidthLength(rightFixed, rightBase + 1);
+         *           }
+         *           fixedOff += 1 + type.getFlatFixedSize();
+         *       }
+         *
+         *       // All keys equal
+         *       return 0;
+         *   }
+         *
+         * Notes:
+         * - The comparator is linked with invokedynamic to a type-specific MethodHandle:
+         *     - COMPARE_FLAT_FLAT: (byte[], int, byte[], int, byte[], int, byte[], int) -> long
+         *   The bootstrap installs ConstantCallSites so hot calls inline.
+         * - The ‘+1’ in fixed region offsets skips the per-field null flag byte.
+         * - Variable-width advancement uses type.getFlatVariableWidthLength(fixed, fixedOffsetForFieldData).
+         */
+
+        // Fast path assuming non-null inputs: compare values directly (skip null-flag branching)
+        for (KeyField keyField : keyFields) {
+            // Compute per-field base offsets once
+            BytecodeExpression leftBase = add(leftFixedOffset, fixedOff);
+            BytecodeExpression rightBase = add(rightFixedOffset, fixedOff);
+
+            // Data offsets skip the null-flag byte
+            BytecodeExpression leftDataOffset = add(leftBase, constantInt(1));
+            BytecodeExpression rightDataOffset = add(rightBase, constantInt(1));
+
+            // Compare directly on FLAT encodings: (leftFixed,leftDataOffset,leftVariable,lVarOff) vs (right...,rVarOff)
+            var cmpBase = invokeDynamic(
+                    BOOTSTRAP_METHOD,
+                    ImmutableList.of(callSiteBinder.bind(keyField.comparisonFlatFlatMethod()).getBindingId()),
+                    "compare",
+                    type(long.class),
+                    leftFixed,
+                    leftDataOffset,
+                    leftVariable,
+                    lVarOff,
+                    rightFixed,
+                    rightDataOffset,
+                    rightVariable,
+                    rVarOff);
+
+            body.append(cmp.set(cmpBase))
+                    .append(new IfStatement()
+                            .condition(notEqual(cmp, constantLong(0)))
+                            .ifTrue(cmp.cast(int.class).ret()));
+
+            // Advance variable offsets when applicable
+            if (keyField.type().isFlatVariableWidth()) {
+                body.append(lVarOff.set(add(lVarOff, constantType(callSiteBinder, keyField.type()).invoke(
+                        "getFlatVariableWidthLength",
+                        int.class,
+                        leftFixed,
+                        leftDataOffset))));
+                body.append(rVarOff.set(add(rVarOff, constantType(callSiteBinder, keyField.type()).invoke(
+                        "getFlatVariableWidthLength",
+                        int.class,
+                        rightFixed,
+                        rightDataOffset))));
+            }
+            // Advance fixed offset by null flag + fixed size
+            body.append(fixedOff.set(add(fixedOff, constantInt(1 + keyField.type().getFlatFixedSize()))));
+        }
+        body.append(constantInt(0).ret());
     }
 
     private static void generateGetTotalVariableWidth(ClassDefinition definition, List<ChunkClass> chunkClasses)
@@ -1019,10 +1185,13 @@ public final class FlatHashStrategyCompiler
             int fieldIsNullOffset,
             int fieldFixedOffset,
             MethodHandle readFlatMethod,
+            MethodHandle readFlatToStackMethod,
             MethodHandle writeFlatMethod,
             MethodHandle identicalFlatBlockMethod,
             MethodHandle hashFlatMethod,
-            MethodHandle hashBlockMethod) {}
+            MethodHandle hashBlockMethod,
+            MethodHandle comparisonStackStackMethod,
+            MethodHandle comparisonFlatFlatMethod) {}
 
     private record ChunkClass(
             ClassDefinition definition,

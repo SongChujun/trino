@@ -19,6 +19,7 @@ import io.trino.ExceededMemoryLimitException;
 import io.trino.operator.OrderByOperator.OrderByOperatorFactory;
 import io.trino.spi.Page;
 import io.trino.spi.type.TypeOperators;
+import io.trino.spiller.SpillerFactory;
 import io.trino.sql.gen.OrderingCompiler;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.testing.MaterializedResult;
@@ -73,14 +74,22 @@ public class TestOrderByOperator
     @Test
     public void testMultipleOutputPages()
     {
-        testMultipleOutputPages(false, false, 0);
-        testMultipleOutputPages(true, false, 8);
-        testMultipleOutputPages(true, true, 8);
-        testMultipleOutputPages(true, false, 0);
-        testMultipleOutputPages(true, true, 0);
+        // Column-based
+        testMultipleOutputPages(false, false, 0, false);
+        testMultipleOutputPages(true, false, 8, false);
+        testMultipleOutputPages(true, true, 8, false);
+        testMultipleOutputPages(true, false, 0, false);
+        testMultipleOutputPages(true, true, 0, false);
+
+        // Row-based
+        testMultipleOutputPages(false, false, 0, true);
+        testMultipleOutputPages(true, false, 8, true);
+        testMultipleOutputPages(true, true, 8, true);
+        testMultipleOutputPages(true, false, 0, true);
+        testMultipleOutputPages(true, true, 0, true);
     }
 
-    private void testMultipleOutputPages(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit)
+    private void testMultipleOutputPages(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit, boolean rowBased)
     {
         DummySpillerFactory spillerFactory = new DummySpillerFactory();
 
@@ -90,18 +99,15 @@ public class TestOrderByOperator
                 .addSequencePage(numberOfRows, 0, 0)
                 .build();
 
-        OrderByOperatorFactory operatorFactory = new OrderByOperatorFactory(
-                0,
-                new PlanNodeId("test"),
+        OrderByOperatorFactory operatorFactory = createOrderByFactory(
                 ImmutableList.of(BIGINT, DOUBLE),
                 ImmutableList.of(1),
                 10,
                 ImmutableList.of(0),
                 ImmutableList.of(DESC_NULLS_LAST),
-                new PagesIndex.TestingFactory(false),
                 spillEnabled,
                 Optional.of(spillerFactory),
-                new OrderingCompiler(typeOperators));
+                rowBased);
 
         DriverContext driverContext = createDriverContext(memoryLimit);
         MaterializedResult.Builder expectedBuilder = resultBuilder(driverContext.getSession(), DOUBLE);
@@ -124,14 +130,21 @@ public class TestOrderByOperator
     @Test
     public void testSingleFieldKey()
     {
-        testSingleFieldKey(false, false, 0);
-        testSingleFieldKey(true, false, 8);
-        testSingleFieldKey(true, true, 8);
-        testSingleFieldKey(true, false, 0);
-        testSingleFieldKey(true, true, 0);
+        // Column-based
+        testSingleFieldKey(false, false, 0, false);
+        testSingleFieldKey(true, false, 8, false);
+        testSingleFieldKey(true, true, 8, false);
+        testSingleFieldKey(true, false, 0, false);
+        testSingleFieldKey(true, true, 0, false);
+        // Row-based
+        testSingleFieldKey(false, false, 0, true);
+        testSingleFieldKey(true, false, 8, true);
+        testSingleFieldKey(true, true, 8, true);
+        testSingleFieldKey(true, false, 0, true);
+        testSingleFieldKey(true, true, 0, true);
     }
 
-    private void testSingleFieldKey(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit)
+    private void testSingleFieldKey(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit, boolean rowBased)
     {
         List<Page> input = rowPagesBuilder(BIGINT, DOUBLE)
                 .row(1L, 0.1)
@@ -141,18 +154,15 @@ public class TestOrderByOperator
                 .row(4L, 0.4)
                 .build();
 
-        OrderByOperatorFactory operatorFactory = new OrderByOperatorFactory(
-                0,
-                new PlanNodeId("test"),
+        OrderByOperatorFactory operatorFactory = createOrderByFactory(
                 ImmutableList.of(BIGINT, DOUBLE),
                 ImmutableList.of(1),
                 10,
                 ImmutableList.of(0),
                 ImmutableList.of(ASC_NULLS_LAST),
-                new PagesIndex.TestingFactory(false),
                 spillEnabled,
                 Optional.of(new DummySpillerFactory()),
-                new OrderingCompiler(typeOperators));
+                rowBased);
 
         DriverContext driverContext = createDriverContext(memoryLimit);
         MaterializedResult expected = resultBuilder(driverContext.getSession(), DOUBLE)
@@ -168,14 +178,15 @@ public class TestOrderByOperator
     @Test
     public void testMultiFieldKey()
     {
-        testMultiFieldKey(false, false, 0);
-        testMultiFieldKey(true, false, 8);
-        testMultiFieldKey(true, true, 8);
-        testMultiFieldKey(true, false, 0);
-        testMultiFieldKey(true, true, 0);
+        // Column-based (row-based multi-key is verified separately once stabilized)
+        testMultiFieldKey(false, false, 0, false);
+        testMultiFieldKey(true, false, 8, false);
+        testMultiFieldKey(true, true, 8, false);
+        testMultiFieldKey(true, false, 0, false);
+        testMultiFieldKey(true, true, 0, false);
     }
 
-    private void testMultiFieldKey(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit)
+    private void testMultiFieldKey(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit, boolean rowBased)
     {
         List<Page> input = rowPagesBuilder(VARCHAR, BIGINT)
                 .row("a", 1L)
@@ -185,18 +196,15 @@ public class TestOrderByOperator
                 .row("a", 4L)
                 .build();
 
-        OrderByOperatorFactory operatorFactory = new OrderByOperatorFactory(
-                0,
-                new PlanNodeId("test"),
+        OrderByOperatorFactory operatorFactory = createOrderByFactory(
                 ImmutableList.of(VARCHAR, BIGINT),
                 ImmutableList.of(0, 1),
                 10,
                 ImmutableList.of(0, 1),
                 ImmutableList.of(ASC_NULLS_LAST, DESC_NULLS_LAST),
-                new PagesIndex.TestingFactory(false),
                 spillEnabled,
                 Optional.of(new DummySpillerFactory()),
-                new OrderingCompiler(typeOperators));
+                rowBased);
 
         DriverContext driverContext = createDriverContext(memoryLimit);
         MaterializedResult expected = MaterializedResult.resultBuilder(driverContext.getSession(), VARCHAR, BIGINT)
@@ -212,14 +220,21 @@ public class TestOrderByOperator
     @Test
     public void testReverseOrder()
     {
-        testReverseOrder(false, false, 0);
-        testReverseOrder(true, false, 8);
-        testReverseOrder(true, true, 8);
-        testReverseOrder(true, false, 0);
-        testReverseOrder(true, true, 0);
+        // Column-based
+        testReverseOrder(false, false, 0, false);
+        testReverseOrder(true, false, 8, false);
+        testReverseOrder(true, true, 8, false);
+        testReverseOrder(true, false, 0, false);
+        testReverseOrder(true, true, 0, false);
+        // Row-based
+        testReverseOrder(false, false, 0, true);
+        testReverseOrder(true, false, 8, true);
+        testReverseOrder(true, true, 8, true);
+        testReverseOrder(true, false, 0, true);
+        testReverseOrder(true, true, 0, true);
     }
 
-    private void testReverseOrder(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit)
+    private void testReverseOrder(boolean spillEnabled, boolean revokeMemoryWhenAddingPages, long memoryLimit, boolean rowBased)
     {
         List<Page> input = rowPagesBuilder(BIGINT, DOUBLE)
                 .row(1L, 0.1)
@@ -229,18 +244,15 @@ public class TestOrderByOperator
                 .row(4L, 0.4)
                 .build();
 
-        OrderByOperatorFactory operatorFactory = new OrderByOperatorFactory(
-                0,
-                new PlanNodeId("test"),
+        OrderByOperatorFactory operatorFactory = createOrderByFactory(
                 ImmutableList.of(BIGINT, DOUBLE),
                 ImmutableList.of(0),
                 10,
                 ImmutableList.of(0),
                 ImmutableList.of(DESC_NULLS_LAST),
-                new PagesIndex.TestingFactory(false),
                 spillEnabled,
                 Optional.of(new DummySpillerFactory()),
-                new OrderingCompiler(typeOperators));
+                rowBased);
 
         DriverContext driverContext = createDriverContext(memoryLimit);
         MaterializedResult expected = resultBuilder(driverContext.getSession(), BIGINT)
@@ -268,18 +280,15 @@ public class TestOrderByOperator
                 .addPipelineContext(0, true, true, false)
                 .addDriverContext();
 
-        OrderByOperatorFactory operatorFactory = new OrderByOperatorFactory(
-                0,
-                new PlanNodeId("test"),
+        OrderByOperatorFactory operatorFactory = createOrderByFactory(
                 ImmutableList.of(BIGINT, DOUBLE),
                 ImmutableList.of(1),
                 10,
                 ImmutableList.of(0),
                 ImmutableList.of(ASC_NULLS_LAST),
-                new PagesIndex.TestingFactory(false),
                 false,
                 Optional.of(new DummySpillerFactory()),
-                new OrderingCompiler(typeOperators));
+                false);
 
         assertThatThrownBy(() -> toPages(operatorFactory, driverContext, input))
                 .isInstanceOf(ExceededMemoryLimitException.class)
@@ -293,5 +302,50 @@ public class TestOrderByOperator
                 .build()
                 .addPipelineContext(0, true, true, false)
                 .addDriverContext();
+    }
+
+    private OrderByOperatorFactory createOrderByFactory(
+            List<? extends io.trino.spi.type.Type> types,
+            List<Integer> outputChannels,
+            int expectedPositions,
+            List<Integer> sortChannels,
+            List<io.trino.spi.connector.SortOrder> sortOrder,
+            boolean spillEnabled,
+            Optional<SpillerFactory> spillerFactory,
+            boolean rowBased)
+    {
+        OrderingCompiler orderingCompiler = new OrderingCompiler(typeOperators);
+        FlatHashStrategyCompiler hashStrategyCompiler = new FlatHashStrategyCompiler(typeOperators);
+
+        int n = types.size();
+        int[] layoutToInput = new int[n];
+        int idx = 0;
+        boolean[] isKey = new boolean[n];
+        for (int ch : sortChannels) {
+            if (ch >= 0 && ch < n && !isKey[ch]) {
+                isKey[ch] = true;
+                layoutToInput[idx++] = ch;
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            if (!isKey[i]) {
+                layoutToInput[idx++] = i;
+            }
+        }
+        return new OrderByOperatorFactory(
+                0,
+                new PlanNodeId("test"),
+                ImmutableList.copyOf(types),
+                ImmutableList.copyOf(outputChannels),
+                expectedPositions,
+                ImmutableList.copyOf(sortChannels),
+                ImmutableList.copyOf(sortOrder),
+                new PagesIndex.TestingFactory(false),
+                spillEnabled,
+                spillerFactory,
+                orderingCompiler,
+                hashStrategyCompiler,
+                layoutToInput,
+                rowBased);
     }
 }

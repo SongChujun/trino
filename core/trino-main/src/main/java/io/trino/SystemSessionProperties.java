@@ -61,6 +61,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 public final class SystemSessionProperties
         implements SystemSessionPropertiesProvider
 {
+    public static final String ORDER_BY_ROW_BASED_ENABLED = "order_by_row_based_enabled";
     public static final String JOIN_DISTRIBUTION_TYPE = "join_distribution_type";
     public static final String JOIN_MAX_BROADCAST_TABLE_SIZE = "join_max_broadcast_table_size";
     public static final String JOIN_MULTI_CLAUSE_INDEPENDENCE_FACTOR = "join_multi_clause_independence_factor";
@@ -278,6 +279,11 @@ public final class SystemSessionProperties
                         false,
                         value -> validateDoubleRange(value, JOIN_MULTI_CLAUSE_INDEPENDENCE_FACTOR, 0.0, 1.0),
                         value -> value),
+                booleanProperty(
+                        ORDER_BY_ROW_BASED_ENABLED,
+                        "Use row-based representation for ORDER BY (experimental)",
+                        false,
+                        false),
                 booleanProperty(
                         DETERMINE_PARTITION_COUNT_FOR_WRITE_ENABLED,
                         "Determine the number of partitions based on amount of data read and processed by the query for write queries",
@@ -1393,6 +1399,11 @@ public final class SystemSessionProperties
     public static boolean isSpillEnabled(Session session)
     {
         return session.getSystemProperty(SPILL_ENABLED, Boolean.class);
+    }
+
+    public static boolean isOrderByRowBasedEnabled(Session session)
+    {
+        return session.getSystemProperty(ORDER_BY_ROW_BASED_ENABLED, Boolean.class);
     }
 
     public static DataSize getAggregationOperatorUnspillMemoryLimit(Session session)

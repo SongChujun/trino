@@ -41,4 +41,15 @@ public interface FlatHashStrategy
     long hash(byte[] fixedChunk, int fixedOffset, byte[] variableChunk, int variableOffset);
 
     void hashBlocksBatched(Block[] blocks, long[] hashes, int offset, int length);
+
+    java.util.List<io.trino.spi.type.Type> getTypes();
+
+    int compareKeys(
+            byte[] leftFixed, int leftFixedOffset, byte[] leftVariable, int leftVariableOffset,
+            byte[] rightFixed, int rightFixedOffset, byte[] rightVariable, int rightVariableOffset,
+            boolean[] ascending, int keyCount);
+
+    int compareKeysWithNulls(
+            byte[] leftFixed, int leftFixedOffset, byte[] leftVariable, int leftVariableOffset,
+            byte[] rightFixed, int rightFixedOffset, byte[] rightVariable, int rightVariableOffset);
 }

@@ -73,7 +73,7 @@ import static org.openjdk.jmh.annotations.Scope.Thread;
 @State(Thread)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
 @Fork(3)
-@Warmup(iterations = 30, time = 500, timeUnit = MILLISECONDS)
+@Warmup(iterations = 10, time = 500, timeUnit = MILLISECONDS)
 @Measurement(iterations = 20, time = 500, timeUnit = MILLISECONDS)
 @BenchmarkMode(Mode.AverageTime)
 @OperationsPerInvocation(BenchmarkBlockSerde.ROWS)

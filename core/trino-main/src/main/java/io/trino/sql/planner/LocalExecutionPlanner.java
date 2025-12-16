@@ -1021,6 +1021,7 @@ public class LocalExecutionPlanner
                     .map(channel -> source.getTypes().get(channel))
                     .collect(toImmutableList());
 
+            // output channels remain in input order
             ImmutableList.Builder<Integer> outputChannels = ImmutableList.builder();
             for (int i = 0; i < source.getTypes().size(); i++) {
                 outputChannels.add(i);
@@ -1878,6 +1879,32 @@ public class LocalExecutionPlanner
             }
 
             boolean spillEnabled = isSpillEnabled(session);
+            boolean rowBasedOrderBy = io.trino.SystemSessionProperties.isOrderByRowBasedEnabled(session);
+
+            // Compute layout mapping for row-based order by: keys first then remaining
+            int[] layoutToInput = new int[source.getTypes().size()];
+            if (rowBasedOrderBy) {
+                int pos = 0;
+                boolean[] isKey = new boolean[source.getTypes().size()];
+                for (int ch : orderByChannels) {
+                    if (ch >= 0 && ch < source.getTypes().size() && !isKey[ch]) {
+                        isKey[ch] = true;
+                        layoutToInput[pos++] = ch;
+                    }
+                }
+                for (int i = 0; i < source.getTypes().size(); i++) {
+                    if (!isKey[i]) {
+                        layoutToInput[pos++] = i;
+                    }
+                }
+            }
+            else {
+                for (int i = 0; i < source.getTypes().size(); i++) {
+                    layoutToInput[i] = i;
+                }
+            }
+
+            // FlatHashStrategy will be created inside OrderByOperator using the provided compiler
 
             OperatorFactory operator = new OrderByOperatorFactory(
                     context.getNextOperatorId(),
@@ -1890,7 +1917,10 @@ public class LocalExecutionPlanner
                     pagesIndexFactory,
                     spillEnabled,
                     Optional.of(spillerFactory),
-                    orderingCompiler);
+                    orderingCompiler,
+                    hashStrategyCompiler,
+                    layoutToInput,
+                    rowBasedOrderBy);
 
             return new PhysicalOperation(operator, source.getLayout(), source);
         }

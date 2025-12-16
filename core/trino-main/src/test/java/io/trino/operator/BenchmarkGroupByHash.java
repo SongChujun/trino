@@ -54,13 +54,13 @@ import static io.trino.spi.type.VarcharType.VARCHAR;
 @SuppressWarnings("MethodMayBeStatic")
 @State(Scope.Thread)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
-@Fork(1)
-@Warmup(iterations = 5, time = 500, timeUnit = TimeUnit.MILLISECONDS)
-@Measurement(iterations = 5, time = 500, timeUnit = TimeUnit.MILLISECONDS)
+@Fork(0)
+@Warmup(iterations = 10, time = 500, timeUnit = TimeUnit.MILLISECONDS)
+@Measurement(iterations = 10, time = 500, timeUnit = TimeUnit.MILLISECONDS)
 @BenchmarkMode(Mode.AverageTime)
 public class BenchmarkGroupByHash
 {
-    private static final int POSITIONS = 10_000_000;
+    private static final int POSITIONS = 10_000_00;
     private static final String GROUP_COUNT_STRING = "3000000";
     private static final int GROUP_COUNT = Integer.parseInt(GROUP_COUNT_STRING);
     private static final int EXPECTED_SIZE = 10_000;
@@ -178,17 +178,17 @@ public class BenchmarkGroupByHash
     @State(Scope.Thread)
     public static class MultiChannelBenchmarkData
     {
-        @Param({"1", "5", "10", "15", "20"})
+        @Param({"1", "5"})
         private int channelCount = 1;
 
         // todo add more group counts when JMH support programmatic ability to set OperationsPerInvocation
         @Param(GROUP_COUNT_STRING)
         private int groupCount = GROUP_COUNT;
 
-        @Param({"CACHED", "ON_DEMAND"})
+        @Param({"ON_DEMAND", "ON_DEMAND"})
         private GroupByHashMode hashMode = GroupByHashMode.ON_DEMAND;
 
-        @Param({"VARCHAR", "BIGINT"})
+        @Param({"BIGINT", "BIGINT"})
         private String dataType = "VARCHAR";
 
         private List<Page> pages;

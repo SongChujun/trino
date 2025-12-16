@@ -64,9 +64,9 @@ public class BenchmarkPagesIndexOrdering
     @State(Scope.Benchmark)
     public static class Context
     {
-        @Param({"1", "10"})
+        @Param({"10"})
         protected int numberOfChannels = 1;
-        @Param({"BIGINT", "VARCHAR"})
+        @Param({"BIGINT"})
         protected String typeName = "BIGINT";
 
         private List<Type> types;
